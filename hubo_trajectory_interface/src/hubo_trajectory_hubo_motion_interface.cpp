@@ -104,7 +104,7 @@ static bool g_wait_for_new_state = false;
  * to determine the joint index used in hubo ach for that joint. If the name
  * can't be found, it returns -1.
 */
-int index_lookup(std::string joint_name)
+int index_lookup( const std::string& joint_name )
 {
     for ( int i=0; i<g_joint_names.size(); i++ )
     {
@@ -306,7 +306,7 @@ bool execute_linear_trajectory( const Hubo::Trajectory& traj, const std::vector<
 }
 
 /*
- * Main function that spins
+ * Main function that spins the ros node
  */
 int main(int argc, char** argv)
 {
@@ -336,7 +336,7 @@ int main(int argc, char** argv)
             ROS_FATAL("Array of joint names should contain all strings.  (namespace: %s)", nhp.getNamespace().c_str());
             exit(1);
         }
-        g_joint_names.push_back((std::string)name_value);
+        g_joint_names.push_back( std::string(name_value) );
     }
 
     g_all_joints.clear();
@@ -349,6 +349,7 @@ int main(int argc, char** argv)
         nhp.param( ns + "/huboachid", h, -1);
         g_joint_mapping[g_joint_names[i]] = h;
         g_all_joints.push_back( h );
+        ROS_INFO( "g_joint_names[%d] : %s\n", i, g_joint_names[i].c_str() );
     }
 
     // Set up Hubo Control daemon (hubo-motion-rt)
@@ -374,7 +375,7 @@ int main(int argc, char** argv)
         if( !g_running && !g_hubo_traj.empty() )
         {
             g_running = true;
-            // Spin up the thread for getting the trajectory execution status
+            // starts the thread for trajectory execution
             traj_thread = new boost::thread( &execute_linear_trajectory, g_hubo_traj, g_all_joints );
         }
 

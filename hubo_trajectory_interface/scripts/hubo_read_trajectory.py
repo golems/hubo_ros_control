@@ -16,36 +16,6 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from copy import deepcopy
 import sys
 
-hubo_body_joint_names = { 
-0 : 'HPY' ,  
-1 : 'RHY' ,  
-2 : 'LHY' ,
-3 : 'RHR' ,
-4 : 'LHR' ,
-5 : 'RHP' , 
-6 : 'LHP' ,  
-7 : 'RKP' ,        
-8 : 'LKP' ,  
-9 : 'RAP' ,      
-10 : 'LAP' ,        
-11 : 'RAR' ,
-12 : 'LAR' ,
-13 : 'RSP' ,
-14 : 'LSP' ,   
-15 : 'RSR' ,        
-16 : 'LSR' ,
-17 : 'RSY' ,
-18 : 'LSY' ,      
-19 : 'REP' , 
-20 : 'LEP' ,
-21 : 'RWY' ,
-22 : 'LWY' ,
-23 : 'RWP' ,    
-24 : 'LWP' ,
-25 : 'HNR' ,
-26 : 'HNP' 
-}
-
 class TrajectoryPlayer():
 
     def __init__(self):
@@ -53,9 +23,25 @@ class TrajectoryPlayer():
         self.hubo_traj = None
         self.dt = 0.05 # 20 Hz
 
+        # ach trajectory mapping, this mapping differs from the internal ros mapping
+        # defined as a global parameter (joints) the parameter server   
+        self.hubo_ach_traj_joint_names = {       0 : 'RHY' ,  1 : 'RHR' ,  2 : 'RHP' ,  3 : 'RKN' ,  4 :  'RAP' ,  
+                                                 5 : 'RAR' ,  6 : 'LHY' ,  7 : 'LHR' ,  8 : 'LHP' ,  9 : 'LKN' , 
+                                                10 : 'LAP' , 11 : 'LAR' , 12 : 'RSP' , 13 : 'RSR' , 14 : 'RSY' , 
+                                                15 : 'REB' , 16 : 'RWY' , 17 : 'RWR' , 18 : 'RWP' , 19 : 'LSP' , 
+                                                20 : 'LSR' , 21 : 'LSY' , 22 : 'LEB' , 23 : 'LWY' , 24 : 'LWR' , 
+                                                25 : 'LWP' , 26 : 'NKY' , 27 : 'NK1' , 28 : 'NK2' , 29 : 'WST' ,
+                                                30 : 'RF1' , 31 : 'RF2' , 32 : 'RF3' , 33 : 'RF4' , 34 : 'RF5' ,  
+                                                35 : 'LF1' , 36 : 'LF2' , 37 : 'LF3' , 38 : 'LF4' , 39 : 'LF5' }
+
+        self.joint_mapping = None
+
         return
+    
 
     def readfile(self,fname):
+
+        print "parsing file"
 
         # open the file and reads the array
         f = open(fname,'r')
@@ -68,14 +54,14 @@ class TrajectoryPlayer():
             print "Warning : empty trajectory"
             return
 
+        print "filing message"
+
         self.hubo_traj = JointTrajectory()
         self.hubo_traj.header.stamp = rospy.Time.now()
 
         t = 0.0
 
         for line in array: # read all lines in file
-
-            #print line
 
             current_point = JointTrajectoryPoint()
             current_point.time_from_start = rospy.Duration(t)
@@ -86,11 +72,14 @@ class TrajectoryPlayer():
             p_buffer = []
 
              # Fill in position buffers
-            joint_id = 0
             for p in range( len(line) ):
-                #if( p in joint_pos_offsets.keys() ):
-                if( joint_id in hubo_body_joint_names.keys() ):
-                    p_buffer.append(float(line[p]))
+
+                try:
+                    i = self.joint_mapping[ self.hubo_ach_traj_joint_names[p] ]
+                except KeyError:
+                    i = None
+                if i is not None:
+                    p_buffer.append(float(line[i]))
 
             # Empty velocity buffers
             v_buffer = []
@@ -120,49 +109,60 @@ class TrajectoryPlayer():
         
         return
 
-#        
-
-
-
-#        dom = parseString(data) # Get the document object model
-
-
-
-#        hubo_traj.points.append(current_point)
-#        return hubo_traj
-                        
-#        except NameError, e:
-#            print "Error - one of the necessary variables is not found:"
-#            print e
-
-#        # print "Finished playing trajectory file: " + fname
-#        return 1
-
 if __name__ == "__main__":
-    # One can run this script from terminal passing a radius value in
-    # Otherwise use the default value
-    r = None
+    # This script presents the same interface as the huo-read-trajectory program
+    # one can run this script from terminal passing the frequency
+    # and the compliance mode
+    filename = None
+    compliance = False
+    frequency = False
     play = False
-    taskwall = False
-    wall = False
-    demo = False
+
+    accepted_freq = [100, 50, 25, 10, 200, 500]
 
     if(len(sys.argv) >= 2):
         for index in range(1,len(sys.argv)):
             if(sys.argv[index] == "-radius" and index+1<len(sys.argv)):
                 r = float(sys.argv[index+1])
-            elif(sys.argv[index] == "-play"):
-                play = True
-            elif(sys.argv[index] == "-taskwall"):
+            elif(sys.argv[index] == "-f"):
+                frequency = float(sys.argv[index+1])
+                if( frequency in accepted_freq ):
+                    play = True
+                else:
+                    print "frequency is not in accepted"
+                    print accepted_freq
+                    play = True
+            elif(sys.argv[index] == "-n"):
                 taskwall = True
             elif(sys.argv[index] == "-wall"):
                 wall = True
             elif(sys.argv[index] == "-demo"):
                 demo = True
 
-    rospy.init_node("hubo_read_trajectory")
+    rospy.init_node( "hubo_read_trajectory" )
+
+    # Hard coded namespace
+    ns = "/drchubo_fullbody_controller/drchubo_fullbody_controller_node/"
+
+    joint_names = rospy.get_param( ns + "joints")
+
+    joint_mapping = {}
+
+    for i in range(0,len(joint_names)):
+        joint_names[i] = joint_names[i].strip( '/' )
+        joint_mapping[ joint_names[i] ] = int(i)
+        
+    print joint_mapping
+
+#    joint_mapping = {}
+#    for i in range(0,len(joint_names)):
+#        ns = str("/drchubo_fullbody_controller/drchubo_fullbody_controller_node/mapping/") + joint_names[i]
+#        h = rospy.get_param( ns + "/huboachid" )
+#        print str(h) + " " + joint_names[i]
+#        joint_mapping[ joint_names[i] ] = h
 
     play = TrajectoryPlayer()
+    play.joint_mapping = joint_mapping
     play.readfile("../test_data/ach_final.traj")
-    print "done!"  
+    print "done!"
 
