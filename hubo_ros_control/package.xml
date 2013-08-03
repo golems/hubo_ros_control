@@ -1,6 +1,6 @@
 <?xml version="1.0"?>
 <package>
-  <name>hubo_ros_core</name>
+  <name>hubo_ros_control</name>
   <version>0.0.1</version>
   <description>The hubo_ros_control package</description>
   <maintainer email="calder.pg@gmail.com">Calder Phillips-Grafflin</maintainer>
