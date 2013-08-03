@@ -48,7 +48,6 @@
 #include <ros/ros.h>
 #include <actionlib/server/action_server.h>
 // Message and action includes for Hubo actions
-#include <trajectory_msgs/JointTrajectory.h>
 #include <hubo_robot_msgs/JointTrajectoryAction.h>
 #include <hubo_robot_msgs/JointTrajectoryState.h>
 
@@ -71,7 +70,7 @@ private:
     ros::Timer watchdog_timer_;
     bool has_active_goal_;
     HTGH active_goal_;
-    trajectory_msgs::JointTrajectory current_traj_;
+    hubo_robot_msgs::JointTrajectory current_traj_;
     std::vector<std::string> joint_names_;
     std::map<std::string,double> goal_constraints_;
     std::map<std::string,double> trajectory_constraints_;
@@ -136,7 +135,7 @@ private:
             if (should_abort)
             {
                 // Stops the controller.
-                trajectory_msgs::JointTrajectory empty;
+                hubo_robot_msgs::JointTrajectory empty;
                 empty.joint_names = joint_names_;
                 pub_interface_command_.publish(empty);
                 // Marks the current goal as aborted.
@@ -172,7 +171,7 @@ private:
         if (has_active_goal_)
         {
             // Stops the controller.
-            trajectory_msgs::JointTrajectory empty;
+            hubo_robot_msgs::JointTrajectory empty;
             empty.joint_names = joint_names_;
             pub_interface_command_.publish(empty);
             // Marks the current goal as canceled.
@@ -201,7 +200,7 @@ private:
         if (active_goal_ == gh)
         {
             // Stops the controller.
-            trajectory_msgs::JointTrajectory empty;
+            hubo_robot_msgs::JointTrajectory empty;
             empty.joint_names = joint_names_;
             pub_interface_command_.publish(empty);
             // Marks the current goal as canceled.
@@ -261,7 +260,7 @@ private:
                 if (constraint >= 0 && abs_error > constraint)
                 {
                     // Stops the controller.
-                    trajectory_msgs::JointTrajectory empty;
+                    hubo_robot_msgs::JointTrajectory empty;
                     empty.joint_names = joint_names_;
                     pub_interface_command_.publish(empty);
                     // Marks the current goal as aborted
@@ -310,7 +309,7 @@ private:
             else
             {
                 // Stops the controller.
-                trajectory_msgs::JointTrajectory empty;
+                hubo_robot_msgs::JointTrajectory empty;
                 empty.joint_names = joint_names_;
                 pub_interface_command_.publish(empty);
                 // Marks the current goal as aborted
@@ -383,7 +382,7 @@ public:
         pn.param("constraints/stopped_velocity_tolerance", stopped_velocity_tolerance_, 0.01);
         ///////////////////////////////////////////////////
         // Set up the publisher & subscriber link to the trajectory controller interface
-        pub_interface_command_ = node_.advertise<trajectory_msgs::JointTrajectory>(node_.getNamespace() + "/command", 1);
+        pub_interface_command_ = node_.advertise<hubo_robot_msgs::JointTrajectory>(node_.getNamespace() + "/command", 1);
         sub_interface_state_ = node_.subscribe(node_.getNamespace() + "/state", 1, &HuboJointTrajectoryServer::controllerStateCB, this);
         // Set up a watchdog timer to handle drops in the communication between this server and the trajectory controller
         watchdog_timer_ = node_.createTimer(ros::Duration(1.0), &HuboJointTrajectoryServer::watchdog, this);
@@ -424,7 +423,7 @@ public:
         {
             // Stops the controller.
             ROS_INFO("Starting safe shutdown...");
-            trajectory_msgs::JointTrajectory empty;
+            hubo_robot_msgs::JointTrajectory empty;
             empty.joint_names = joint_names_;
             pub_interface_command_.publish(empty);
             if (has_active_goal_)
