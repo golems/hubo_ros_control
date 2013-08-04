@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-# Jim Mainprice WPI
+# Jim Mainprice WPI, august 2013
 
 import rospy;
 import roslib;
@@ -9,6 +9,9 @@ from math import *
 import random
 import time
 
+# Brings in the SimpleActionClient
+import actionlib
+
 from std_msgs.msg import String
 from hubo_robot_msgs.msg import *
 from trajectory_msgs.msg import JointTrajectoryPoint
@@ -16,15 +19,17 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from copy import deepcopy
 import sys
 
-class TrajectoryPlayer():
+class TrajectoryReader():
 
-    def __init__(self):
+    def __init__( self, robot_name, joint_mapping ):
         
+        self.robot_name = robot_name
+        self.joint_mapping = joint_mapping
         self.hubo_traj = None
         self.dt = 0.05 # 20 Hz
 
-        # ach trajectory mapping, this mapping differs from the internal ros mapping
-        # defined as a global parameter (joints) the parameter server   
+        # Ach trajectory mapping. This mapping differs from the internal ros mapping
+        # which is defined as a global parameter (joints) in the parameter server   
         self.hubo_ach_traj_joint_names = {       0 : 'RHY' ,  1 : 'RHR' ,  2 : 'RHP' ,  3 : 'RKN' ,  4 :  'RAP' ,  
                                                  5 : 'RAR' ,  6 : 'LHY' ,  7 : 'LHR' ,  8 : 'LHP' ,  9 : 'LKN' , 
                                                 10 : 'LAP' , 11 : 'LAR' , 12 : 'RSP' , 13 : 'RSR' , 14 : 'RSY' , 
@@ -33,13 +38,12 @@ class TrajectoryPlayer():
                                                 25 : 'LWP' , 26 : 'NKY' , 27 : 'NK1' , 28 : 'NK2' , 29 : 'WST' ,
                                                 30 : 'RF1' , 31 : 'RF2' , 32 : 'RF3' , 33 : 'RF4' , 34 : 'RF5' ,  
                                                 35 : 'LF1' , 36 : 'LF2' , 37 : 'LF3' , 38 : 'LF4' , 39 : 'LF5' }
-
-        self.joint_mapping = None
-
         return
     
 
-    def readfile(self,fname):
+    # Load file and store in a ROS message type
+    # return False if the trajectory could not be loaded
+    def loadfile(self,fname):
 
         print "parsing file"
 
@@ -52,7 +56,7 @@ class TrajectoryPlayer():
 
         if( len(array) == 0 ):
             print "Warning : empty trajectory"
-            return
+            return False
 
         print "filing message"
 
@@ -63,15 +67,16 @@ class TrajectoryPlayer():
 
         for line in array: # read all lines in file
 
+            # Ane configuration per line
             current_point = JointTrajectoryPoint()
             current_point.time_from_start = rospy.Duration(t)
 
+            # Advance in time by dt
             t += self.dt
 
-            # Empty position buffers
+            # ---------------------------------------
+            # Fill position buffers
             p_buffer = []
-
-             # Fill in position buffers
             for p in range( len(line) ):
 
                 try:
@@ -81,19 +86,17 @@ class TrajectoryPlayer():
                 if i is not None:
                     p_buffer.append(float(line[i]))
 
-            # Empty velocity buffers
+            # ---------------------------------------
+            # Fill velocity buffers using finite defercing
             v_buffer = []
-
-            # Fill in velocity buffers
             v_buffer.append( (p_buffer[0]-p_buffer[1])/self.dt )
             for i in range( 1 , len(p_buffer)-1 ):
                 v_buffer.append( (p_buffer[i+1]-p_buffer[i-1])/self.dt )
             v_buffer.append( (p_buffer[len(p_buffer)-1]-p_buffer[len(p_buffer)-2])/self.dt )
 
-            # Empty accelerations buffers
+            # ---------------------------------------
+            # Fill acceleration buffers using finite defercing
             a_buffer = []
-
-            # Fill in accelerations buffers
             a_factor = 10;
             a_buffer.append( a_factor*(v_buffer[0]-v_buffer[1])/self.dt )
             for i in range( 1 , len(v_buffer)-1 ):
@@ -107,13 +110,44 @@ class TrajectoryPlayer():
 
             self.hubo_traj.points.append(current_point)
         
+        return True
+
+
+    # Sends the trajectory the actionLib
+    # returns when the trajectory is finished exected
+    def execute(self):
+
+        if( self.hubo_traj is None ):
+            print "cannot execute empty trajectory"
+            return
+
+        # Creates a SimpleActionClient, passing the type of the action to the constructor.
+        client = actionlib.SimpleActionClient('/drchubo_fullbody_controller/joint_trajectory_action', hubo_robot_msgs.msg.JointTrajectoryAction )
+        
+
+        # Waits until the action server has start
+        print "waiting for action server..."
+        client.wait_for_server()
+        
+        # Execute the start
+        print "client started, sending trajectory!"
+        res = None
+        rospy.sleep(1.0)
+        traj_goal = JointTrajectoryGoal()
+        traj_goal.trajectory = self.hubo_traj
+        traj_goal.trajectory.header.stamp = rospy.Time.now()
+        client.send_goal( traj_goal )
+        client.wait_for_result()
+        res = client.get_result()
+        print res
+
         return
 
 if __name__ == "__main__":
     # This script presents the same interface as the huo-read-trajectory program
     # one can run this script from terminal passing the frequency
     # and the compliance mode
-    filename = None
+    file_name = None
     compliance = False
     frequency = False
     play = False
@@ -121,48 +155,52 @@ if __name__ == "__main__":
     accepted_freq = [100, 50, 25, 10, 200, 500]
 
     if(len(sys.argv) >= 2):
+
         for index in range(1,len(sys.argv)):
-            if(sys.argv[index] == "-radius" and index+1<len(sys.argv)):
-                r = float(sys.argv[index+1])
-            elif(sys.argv[index] == "-f"):
-                frequency = float(sys.argv[index+1])
+
+            if(sys.argv[index] == "-n" and index+1<len(sys.argv)):
+                file_name = sys.argv[index+1]
+                play = True
+                try:
+                    with open(file_name): pass
+                except IOError:
+                    play = False
+                    print "file :" + file_name + " does not exist"
+
+            elif(sys.argv[index] == "-f" and index+1<len(sys.argv)):
+                frequency = int(sys.argv[index+1])
                 if( frequency in accepted_freq ):
                     play = True
                 else:
                     print "frequency is not in accepted"
                     print accepted_freq
                     play = True
-            elif(sys.argv[index] == "-n"):
-                taskwall = True
-            elif(sys.argv[index] == "-wall"):
-                wall = True
-            elif(sys.argv[index] == "-demo"):
-                demo = True
 
-    rospy.init_node( "hubo_read_trajectory" )
+    if not play:
+        print "error in arguments!!!"
 
-    # Hard coded namespace
-    ns = "/drchubo_fullbody_controller/drchubo_fullbody_controller_node/"
+    else: # All arguments are fine, play trajectory
 
-    joint_names = rospy.get_param( ns + "joints")
+        rospy.init_node( "hubo_read_trajectory" )
 
-    joint_mapping = {}
+        # Hard coded namespace
+        robot_name = "drchubo"
+        ns = "/" + robot_name + "_fullbody_controller/hubo_trajectory_action/"
 
-    for i in range(0,len(joint_names)):
-        joint_names[i] = joint_names[i].strip( '/' )
-        joint_mapping[ joint_names[i] ] = int(i)
-        
-    print joint_mapping
+        # Get joint mapping from parameter server
+        joint_names = rospy.get_param( ns + "joints")
+        joint_mapping = {}
+        for i in range(0,len(joint_names)):
+            joint_names[i] = joint_names[i].strip( '/' )
+            joint_mapping[ joint_names[i] ] = int(i)
+            
+        print joint_mapping
 
-#    joint_mapping = {}
-#    for i in range(0,len(joint_names)):
-#        ns = str("/drchubo_fullbody_controller/drchubo_fullbody_controller_node/mapping/") + joint_names[i]
-#        h = rospy.get_param( ns + "/huboachid" )
-#        print str(h) + " " + joint_names[i]
-#        joint_mapping[ joint_names[i] ] = h
-
-    play = TrajectoryPlayer()
-    play.joint_mapping = joint_mapping
-    play.readfile("../test_data/ach_final.traj")
-    print "done!"
+        # Load and execute trajectory through actionLib
+        reader = TrajectoryReader( robot_name, joint_mapping )
+        if reader.loadfile( file_name ):
+            reader.execute()
+            print "done!"
+        else:
+            print "Could not load trajectory"
 
