@@ -333,12 +333,12 @@ private:
 
         // Callback to chunk and save incoming trajectories
         // Before we do anything, check if the trajectory is empty - this is a special "stop" value that flushes the current stored trajectory
-        if (ros_traj.points.size() == 0 )
+        if ( ros_traj.points.size() == 0 )
         {
             ROS_INFO("Flushing current trajectory");
             return;
         }
-        else if (ros_traj.points.size() == 0)
+        else if ( ros_traj.points.size() == 0 )
         {
             ROS_WARN("Execution cancelled, NOT ABORTING DUE TO DEBUG MODE");
             return;
@@ -350,8 +350,11 @@ private:
 
         // Set compliance
         compliant_joint_names_ = ros_traj.compliance.joint_names;
-        compliance_kp_ = ros_traj.compliance.compliance_kp;
-        compliance_kd_ = ros_traj.compliance.compliance_kd;
+        if( !compliant_joint_names_.empty() )
+        {
+            compliance_kp_ = ros_traj.compliance.compliance_kp;
+            compliance_kd_ = ros_traj.compliance.compliance_kd;
+        }
 
         ros::Duration base_time(0.0);
 
@@ -493,6 +496,14 @@ private:
         {
             int jnt = active_joints_[i];
             hubo_->setJointTrajCorrectness( jnt, 0.05 );
+        }
+
+        if( compliant_joint_names_.empty() )
+        {
+            set_arms_complience_off();
+        }
+        else {
+            set_arms_complience_on();
         }
 
         while( t <= t_length )

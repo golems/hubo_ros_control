@@ -66,6 +66,7 @@ class TrajectoryReader():
         self.hubo_traj = JointTrajectory()
         self.hubo_traj.header.stamp = rospy.Time.now()
         self.hubo_traj.joint_names = self.joint_names
+        self.hubo_traj.compliance.joint_names = []
 
         t = 0.0
 
