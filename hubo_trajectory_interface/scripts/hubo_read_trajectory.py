@@ -22,15 +22,15 @@ import sys
 # Provides loader from ach format and playing through actionLib
 class TrajectoryReader():
 
-    def __init__( self, robot_name, joint_names, joint_mapping ):
+    def __init__( self, robot_name, frequency, joint_names, joint_mapping ):
         
         self.robot_name = robot_name
         self.joint_names = joint_names
         self.joint_mapping = joint_mapping
         self.hubo_traj = None
-        self.dt = 0.05 # 20 Hz (0.05)
+        self.dt = 1 / float(frequency) # 20 Hz (0.05)
 
-        print self.joint_names
+        print "self.dt : " + str( self.dt )
 
         # Ach trajectory mapping. It differs from the internal ros mapping
         # which is defined as a global parameter (joints) in the parameter server   
@@ -77,7 +77,7 @@ class TrajectoryReader():
             current_point.time_from_start = rospy.Duration(t)
 
             # Advance in time by dt
-            t += self.dt
+            t += float( self.dt )
 
             # ---------------------------------------
             # Fills position buffer
@@ -144,6 +144,7 @@ class TrajectoryReader():
 
         # Set Kp gains
         compliance_kp = [0.0]*len(joint_names)
+
         compliance_kp[0]  = 80
         compliance_kp[1]  = 80
         compliance_kp[2]  = 70
@@ -204,7 +205,7 @@ if __name__ == "__main__":
     # frequency and the compliance as arguments
     file_name = None
     compliance = False
-    frequency = False
+    frequency = 25
     play = False
 
     accepted_freq = [100, 50, 25, 10, 200, 500]
@@ -225,13 +226,14 @@ if __name__ == "__main__":
             elif(sys.argv[index] == "-f" and index+1<len(sys.argv)):
                 frequency = int(sys.argv[index+1])
                 if( frequency in accepted_freq ):
+                    print "frequency is " + str(frequency)
                     play = True
                 else:
                     print "frequency is not in accepted"
                     print accepted_freq
-                    play = True
+                    play = False
 
-            elif(sys.argv[index] == "-c":
+            elif(sys.argv[index] == "-c"):
                 compliance = True
 
     if not play:
@@ -251,19 +253,17 @@ if __name__ == "__main__":
         for i in range(0,len(joint_names)):
             joint_names[i] = joint_names[i].strip( '/' )
             joint_mapping[ joint_names[i] ] = int(i)
-            
-        print joint_mapping
 
         # Loads and executes the trajectory
-        reader = TrajectoryReader( robot_name, joint_names, joint_mapping )
+        reader = TrajectoryReader( robot_name, frequency, joint_names, joint_mapping )
 
         if reader.loadfile( file_name ):
             if compliance:
                 reader.setcompliance()
-            print reader.hubo_traj.compliance
+            #print reader.hubo_traj.compliance
             #print reader.hubo_traj.joint_names
-            #print reader.hubo_traj
-            #reader.execute()
+            print "duration : " + str(reader.hubo_traj.points[-1].time_from_start.to_sec())
+            reader.execute()
             print "done!"
         else:
             print "Could not load trajectory"
