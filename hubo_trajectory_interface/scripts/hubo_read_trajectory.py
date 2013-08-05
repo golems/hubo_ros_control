@@ -19,6 +19,7 @@ from trajectory_msgs.msg import JointTrajectoryPoint
 from copy import deepcopy
 import sys
 
+# Provides loader from ach format and playing through actionLib
 class TrajectoryReader():
 
     def __init__( self, robot_name, joint_mapping ):
@@ -28,7 +29,7 @@ class TrajectoryReader():
         self.hubo_traj = None
         self.dt = 0.05 # 20 Hz
 
-        # Ach trajectory mapping. This mapping differs from the internal ros mapping
+        # Ach trajectory mapping. It differs from the internal ros mapping
         # which is defined as a global parameter (joints) in the parameter server   
         self.hubo_ach_traj_joint_names = {       0 : 'RHY' ,  1 : 'RHR' ,  2 : 'RHP' ,  3 : 'RKN' ,  4 :  'RAP' ,  
                                                  5 : 'RAR' ,  6 : 'LHY' ,  7 : 'LHR' ,  8 : 'LHP' ,  9 : 'LKN' , 
@@ -40,9 +41,8 @@ class TrajectoryReader():
                                                 35 : 'LF1' , 36 : 'LF2' , 37 : 'LF3' , 38 : 'LF4' , 39 : 'LF5' }
         return
     
-
-    # Load file and store in a ROS message type
-    # return False if the trajectory could not be loaded
+    # Loads trajectory from file and stores it in a ROS message type
+    # returns False if the trajectory had not be loaded properly
     def loadfile(self,fname):
 
         print "parsing file"
@@ -65,7 +65,7 @@ class TrajectoryReader():
 
         t = 0.0
 
-        for line in array: # read all lines in file
+        for line in array: # reads all lines in the file
 
             # Ane configuration per line
             current_point = JointTrajectoryPoint()
@@ -75,7 +75,7 @@ class TrajectoryReader():
             t += self.dt
 
             # ---------------------------------------
-            # Fill position buffers
+            # Fills position buffer
             p_buffer = []
             for p in range( len(line) ):
 
@@ -87,7 +87,7 @@ class TrajectoryReader():
                     p_buffer.append(float(line[i]))
 
             # ---------------------------------------
-            # Fill velocity buffers using finite defercing
+            # Fills velocity buffer using finite deferencing
             v_buffer = []
             v_buffer.append( (p_buffer[0]-p_buffer[1])/self.dt )
             for i in range( 1 , len(p_buffer)-1 ):
@@ -95,7 +95,7 @@ class TrajectoryReader():
             v_buffer.append( (p_buffer[len(p_buffer)-1]-p_buffer[len(p_buffer)-2])/self.dt )
 
             # ---------------------------------------
-            # Fill acceleration buffers using finite defercing
+            # Fills acceleration buffer using finite deferencing
             a_buffer = []
             a_factor = 10;
             a_buffer.append( a_factor*(v_buffer[0]-v_buffer[1])/self.dt )
@@ -103,7 +103,7 @@ class TrajectoryReader():
                 a_buffer.append( a_factor*(v_buffer[i+1]-v_buffer[i-1])/self.dt )
             a_buffer.append( a_factor*(v_buffer[len(v_buffer)-1]-v_buffer[len(v_buffer)-2])/self.dt )
 
-            # Append trajectory point
+            # Appends trajectory point
             current_point.positions = deepcopy(p_buffer)
             current_point.velocities = deepcopy(v_buffer)
             current_point.accelerations = deepcopy(a_buffer)
@@ -112,24 +112,22 @@ class TrajectoryReader():
         
         return True
 
-
-    # Sends the trajectory the actionLib
-    # returns when the trajectory is finished exected
+    # Sends the trajectory to the actionLib
+    # returns when execution is finished
     def execute(self):
 
         if( self.hubo_traj is None ):
             print "cannot execute empty trajectory"
             return
 
-        # Creates a SimpleActionClient, passing the type of the action to the constructor.
+        # Creates a SimpleActionClient, passing the type of action to the constructor.
         client = actionlib.SimpleActionClient('/drchubo_fullbody_controller/joint_trajectory_action', hubo_robot_msgs.msg.JointTrajectoryAction )
         
-
-        # Waits until the action server has start
+        # Waits until the action server has started
         print "waiting for action server..."
         client.wait_for_server()
         
-        # Execute the start
+        # Sends trajectory as a goal
         print "client started, sending trajectory!"
         res = None
         rospy.sleep(1.0)
@@ -144,9 +142,9 @@ class TrajectoryReader():
         return
 
 if __name__ == "__main__":
-    # This script presents the same interface as the huo-read-trajectory program
-    # one can run this script from terminal passing the frequency
-    # and the compliance mode
+    # This script presents the same interface as hubo-read-trajectory (ach based)
+    # one can run this script from terminal passing 
+    # frequency and the compliance as arguments
     file_name = None
     compliance = False
     frequency = False
@@ -179,24 +177,24 @@ if __name__ == "__main__":
     if not play:
         print "error in arguments!!!"
 
-    else: # All arguments are fine, play trajectory
+    else: # All arguments are fine, plays trajectory
 
         rospy.init_node( "hubo_read_trajectory" )
 
-        # Hard coded namespace
+        # Hard-coded namespace (you can change the robot name here)
         robot_name = "drchubo"
         ns = "/" + robot_name + "_fullbody_controller/hubo_trajectory_action/"
 
-        # Get joint mapping from parameter server
-        joint_names = rospy.get_param( ns + "joints")
+        # Gets joint mapping from parameter server
         joint_mapping = {}
+        joint_names = rospy.get_param( ns + "joints")
         for i in range(0,len(joint_names)):
             joint_names[i] = joint_names[i].strip( '/' )
             joint_mapping[ joint_names[i] ] = int(i)
             
         print joint_mapping
 
-        # Load and execute trajectory through actionLib
+        # Loads and executes the trajectory
         reader = TrajectoryReader( robot_name, joint_mapping )
         if reader.loadfile( file_name ):
             reader.execute()
