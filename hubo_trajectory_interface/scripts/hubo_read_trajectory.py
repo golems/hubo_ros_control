@@ -28,7 +28,7 @@ class TrajectoryReader():
         self.joint_names = joint_names
         self.joint_mapping = joint_mapping
         self.hubo_traj = None
-        self.dt = 0.01 # 20 Hz (0.05)
+        self.dt = 0.05 # 20 Hz (0.05)
 
         print self.joint_names
 
@@ -120,6 +120,52 @@ class TrajectoryReader():
         
         return True
 
+    # Set compliance
+    def setcompliance(self):
+
+        joint_names = [] 
+            
+        # Left arm
+        joint_names.append('LSP')
+        joint_names.append('LSR')
+        joint_names.append('LSY')
+        joint_names.append('LEP')
+        joint_names.append('LWY')
+        joint_names.append('LWP')
+
+        # Right arm
+        joint_names.append('RSP')
+        joint_names.append('RSR')
+        joint_names.append('RSY')
+        joint_names.append('REP')
+        joint_names.append('RWY')
+        joint_names.append('RWP')
+
+        # Set Kp gains
+        compliance_kp = [0.0]*len(joint_names)
+        compliance_kp[0]  = 80
+        compliance_kp[1]  = 80
+        compliance_kp[2]  = 70
+        compliance_kp[3]  = 40
+        compliance_kp[4]  = 50
+        compliance_kp[5]  = 40
+
+        compliance_kp[6]  = 80
+        compliance_kp[7]  = 80
+        compliance_kp[8]  = 70
+        compliance_kp[9]  = 40
+        compliance_kp[10] = 50
+        compliance_kp[11] = 40
+
+        # Set Kd gains
+        compliance_kd = [0.0]*len(joint_names)
+
+        self.hubo_traj.compliance.joint_names = joint_names
+        self.hubo_traj.compliance.compliance_kp = compliance_kp
+        self.hubo_traj.compliance.compliance_kd = compliance_kp
+
+        return
+
     # Sends the trajectory to the actionLib
     # returns when execution is finished
     def execute(self):
@@ -184,6 +230,9 @@ if __name__ == "__main__":
                     print accepted_freq
                     play = True
 
+            elif(sys.argv[index] == "-c":
+                compliance = True
+
     if not play:
         print "error in arguments!!!"
 
@@ -206,10 +255,14 @@ if __name__ == "__main__":
 
         # Loads and executes the trajectory
         reader = TrajectoryReader( robot_name, joint_names, joint_mapping )
+
         if reader.loadfile( file_name ):
-            print reader.hubo_traj.joint_names
+            if compliance:
+                reader.setcompliance()
+            print reader.hubo_traj.compliance
+            #print reader.hubo_traj.joint_names
             #print reader.hubo_traj
-            reader.execute()
+            #reader.execute()
             print "done!"
         else:
             print "Could not load trajectory"

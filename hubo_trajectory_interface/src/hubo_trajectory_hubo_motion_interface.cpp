@@ -39,6 +39,7 @@
 #include <hubo_robot_msgs/JointTrajectory.h>
 #include <hubo_robot_msgs/JointTrajectoryState.h>
 #include <trajectory_msgs/JointTrajectoryPoint.h>
+#include <hubo_robot_msgs/ComplianceConfig.h>
 #include <rosgraph_msgs/Clock.h>
 // Includes for ACH and hubo-motion-rt
 #include <hubo_components/hubo_components/Hubo_Control.h>
@@ -189,8 +190,12 @@ private:
     std::vector<std::string> joint_names_;
     std::map<std::string,int> joint_mapping_;
 
+    // Compliance
+    std::vector<std::string> compliant_joint_names_;
+    std::vector<double> compliance_kp_;
+    std::vector<double> compliance_kd_;
+
     // Trajectory storage
-    hubo_robot_msgs::JointTrajectory ros_trajectory_;
     int g_tid;
 
     // Publisher and subscriber
@@ -322,27 +327,31 @@ private:
     }
 
     //! Callback when the ROS trajectory is received chunks, chunks are transmitted over hubo-ach
-    void trajectory_cb( const hubo_robot_msgs::JointTrajectory& traj )
+    void trajectory_cb( const hubo_robot_msgs::JointTrajectory& ros_traj )
     {
         ROS_INFO("Trajectory received");
 
         // Callback to chunk and save incoming trajectories
         // Before we do anything, check if the trajectory is empty - this is a special "stop" value that flushes the current stored trajectory
-        if (traj.points.size() == 0 )
+        if (ros_traj.points.size() == 0 )
         {
             ROS_INFO("Flushing current trajectory");
             return;
         }
-        else if (traj.points.size() == 0)
+        else if (ros_traj.points.size() == 0)
         {
             ROS_WARN("Execution cancelled, NOT ABORTING DUE TO DEBUG MODE");
             return;
         }
-        ROS_INFO("Reprocessing trajectory with %ld elements into chunks", traj.points.size());
+        ROS_INFO("Reprocessing trajectory with %ld elements into chunks", ros_traj.points.size());
 
-        ros_trajectory_ = traj;
-        ros_trajectory_.points.clear();
+        // Set trajectory
         hubo_traj_.clear();
+
+        // Set compliance
+        compliant_joint_names_ = ros_traj.compliance.joint_names;
+        compliance_kp_ = ros_traj.compliance.compliance_kp;
+        compliance_kd_ = ros_traj.compliance.compliance_kd;
 
         ros::Duration base_time(0.0);
 
@@ -354,10 +363,10 @@ private:
             q_cur.second[i] = hubo_->getJointAngleState( i );
 
         // Process all points
-        for ( size_t i=0; i<traj.points.size();i++ )
+        for ( size_t i=0; i<ros_traj.points.size();i++ )
         {
             // Make sure the JointTrajectoryPoint gets retimed to match its new trajectory chunk
-            trajectory_msgs::JointTrajectoryPoint cur_point = traj.points[i];
+            trajectory_msgs::JointTrajectoryPoint cur_point = ros_traj.points[i];
 
             // Retime based on the receiving times
             cur_point.time_from_start = cur_point.time_from_start - base_time;
@@ -367,9 +376,6 @@ private:
             cur_point.velocities.resize(size);
             cur_point.accelerations.resize(size);
 
-            // Store the current point in a ros trajectory
-            ros_trajectory_.points.push_back( cur_point );
-
             // Store the point as in linear peicewise trajectory
             Hubo::Milestone q;
             q.first = cur_point.time_from_start.toSec();
@@ -378,8 +384,7 @@ private:
             // Now, overwrite with the commands in the current trajectory
             for ( size_t j=0; j<cur_point.positions.size(); j++)
             {
-                int index = index_lookup( ros_trajectory_.joint_names[j] );
-                //cout << ros_trajectory_.joint_names[j] << " , index : " << index << endl;
+                int index = index_lookup( ros_traj.joint_names[j] );
                 if (index != -1)
                 {
                     q.second[index] = cur_point.positions[j];
@@ -393,7 +398,7 @@ private:
             hubo_traj_.push_back( q );
         }
 
-        ROS_INFO("Received a new trajectory with %ld elements", ros_trajectory_.points.size());
+        ROS_INFO("Received a new trajectory with %ld elements", ros_traj.points.size());
     }
 
     //! Gets the current time from hubo-ach
@@ -420,21 +425,19 @@ private:
     //! a series of waypoints
     bool load_trajectory_from_file()
     {
-        //    hubo.setArmCompliance( LEFT, true );
-        //    hubo.setArmCompliance( RIGHT, true );
-
         hubo_traj_.load_from_file( filename_, 25 ); // Play at 25 hertz
     }
 
     void set_arms_complience_on()
     {
-        ArmVector Kp, Kd;
-
-        Kp << -1, -1, -1, -1, -1, -1, -1, -1, -1, -1;
-        Kd << 0, 0, 0, 0, 0, 0, 0, 0, 0, 0;
-
-        hubo_->setArmCompliance( RIGHT, ON, Kp, Kd );
-        hubo_->setArmCompliance( LEFT,  ON, Kp, Kd );
+        for( size_t i=0;compliant_joint_names_.size(); i++ )
+        {
+            int index = index_lookup( compliant_joint_names_[i] );
+            if (index != -1)
+            {
+                hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
+            }
+        }
     }
 
     void set_arms_complience_off()
