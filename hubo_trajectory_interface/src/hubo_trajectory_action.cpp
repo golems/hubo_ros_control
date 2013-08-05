@@ -55,6 +55,7 @@ using std::cout;
 using std::endl;
 
 const double DEFAULT_GOAL_THRESHOLD = 0.1;
+const double COEF_SIM_TIME = 100;
 
 class HuboJointTrajectoryServer
 {
@@ -127,7 +128,7 @@ private:
                 should_abort = true;
                 ROS_WARN("Aborting goal because we have never heard a controller state message.");
             }
-            else if ((now - last_interface_state_->header.stamp) > ros::Duration(5.0))
+            else if ((now - last_interface_state_->header.stamp) > ros::Duration(5.0/COEF_SIM_TIME))
             {
                 should_abort = true;
                 ROS_WARN("Aborting goal because we haven't heard from the controller in %.3lf seconds", (now - last_interface_state_->header.stamp).toSec());
@@ -150,6 +151,7 @@ private:
     */
     void goalCB(HTGH gh)
     {
+        ROS_INFO("Trajectory goal received");
         // Make sure the goal is in the future (if it starts in the past, it could be older than a newer goal that got here first)
         ros::Time now = ros::Time::now();
 
@@ -385,7 +387,7 @@ public:
         pub_interface_command_ = node_.advertise<hubo_robot_msgs::JointTrajectory>(node_.getNamespace() + "/command", 1);
         sub_interface_state_ = node_.subscribe(node_.getNamespace() + "/state", 1, &HuboJointTrajectoryServer::controllerStateCB, this);
         // Set up a watchdog timer to handle drops in the communication between this server and the trajectory controller
-        watchdog_timer_ = node_.createTimer(ros::Duration(1.0), &HuboJointTrajectoryServer::watchdog, this);
+        watchdog_timer_ = node_.createTimer(ros::Duration( 1.0 / COEF_SIM_TIME ), &HuboJointTrajectoryServer::watchdog, this);
 
         ROS_INFO("Waiting for the execution backend to start...");
         ///////////////////////////////////////////////////
@@ -400,7 +402,7 @@ public:
                 ROS_WARN("Waited for the controller for 30 seconds, but it never showed up.");
                 started_waiting_for_controller = ros::Time::now();
             }
-            ros::Duration(0.1).sleep();
+            ros::Duration( 0.1 / COEF_SIM_TIME ).sleep();
         }
         // Once everything is ready, start the actionserver
         action_server_.start();

@@ -6,6 +6,15 @@ using namespace Hubo;
 using std::cout;
 using std::endl;
 
+void Hubo::print_vector( Vector vect )
+{
+    for(int i=0;i<vect.size();i++)
+    {
+        cout << vect[i] << " ";
+    }
+    cout << endl;
+}
+
 Trajectory::Trajectory()
 {
 

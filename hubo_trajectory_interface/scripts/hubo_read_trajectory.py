@@ -22,23 +22,26 @@ import sys
 # Provides loader from ach format and playing through actionLib
 class TrajectoryReader():
 
-    def __init__( self, robot_name, joint_mapping ):
+    def __init__( self, robot_name, joint_names, joint_mapping ):
         
         self.robot_name = robot_name
+        self.joint_names = joint_names
         self.joint_mapping = joint_mapping
         self.hubo_traj = None
-        self.dt = 0.05 # 20 Hz
+        self.dt = 0.01 # 20 Hz (0.05)
+
+        print self.joint_names
 
         # Ach trajectory mapping. It differs from the internal ros mapping
         # which is defined as a global parameter (joints) in the parameter server   
-        self.hubo_ach_traj_joint_names = {       0 : 'RHY' ,  1 : 'RHR' ,  2 : 'RHP' ,  3 : 'RKN' ,  4 :  'RAP' ,  
-                                                 5 : 'RAR' ,  6 : 'LHY' ,  7 : 'LHR' ,  8 : 'LHP' ,  9 : 'LKN' , 
-                                                10 : 'LAP' , 11 : 'LAR' , 12 : 'RSP' , 13 : 'RSR' , 14 : 'RSY' , 
-                                                15 : 'REB' , 16 : 'RWY' , 17 : 'RWR' , 18 : 'RWP' , 19 : 'LSP' , 
-                                                20 : 'LSR' , 21 : 'LSY' , 22 : 'LEB' , 23 : 'LWY' , 24 : 'LWR' , 
-                                                25 : 'LWP' , 26 : 'NKY' , 27 : 'NK1' , 28 : 'NK2' , 29 : 'WST' ,
-                                                30 : 'RF1' , 31 : 'RF2' , 32 : 'RF3' , 33 : 'RF4' , 34 : 'RF5' ,  
-                                                35 : 'LF1' , 36 : 'LF2' , 37 : 'LF3' , 38 : 'LF4' , 39 : 'LF5' }
+        self.hubo_ach_traj_joint_names = {  0 : 'RHY' ,  1 : 'RHR' ,  2 : 'RHP' ,  3 : 'RKP' ,  4 : 'RAP' ,  
+                                            5 : 'RAR' ,  6 : 'LHY' ,  7 : 'LHR' ,  8 : 'LHP' ,  9 : 'LKP' , 
+                                           10 : 'LAP' , 11 : 'LAR' , 12 : 'RSP' , 13 : 'RSR' , 14 : 'RSY' , 
+                                           15 : 'REP' , 16 : 'RWY' , 17 : 'RWR' , 18 : 'RWP' , 19 : 'LSP' , 
+                                           20 : 'LSR' , 21 : 'LSY' , 22 : 'LEP' , 23 : 'LWY' , 24 : 'LWR' , 
+                                           25 : 'LWP' , 26 : 'NKY' , 27 : 'NK1' , 28 : 'NK2' , 29 : 'TSY' ,
+                                           30 : 'RF1' , 31 : 'RF2' , 32 : 'RF3' , 33 : 'RF4' , 34 : 'RF5' ,  
+                                           35 : 'LF1' , 36 : 'LF2' , 37 : 'LF3' , 38 : 'LF4' , 39 : 'LF5' }
         return
     
     # Loads trajectory from file and stores it in a ROS message type
@@ -62,6 +65,7 @@ class TrajectoryReader():
 
         self.hubo_traj = JointTrajectory()
         self.hubo_traj.header.stamp = rospy.Time.now()
+        self.hubo_traj.joint_names = self.joint_names
 
         t = 0.0
 
@@ -76,7 +80,8 @@ class TrajectoryReader():
 
             # ---------------------------------------
             # Fills position buffer
-            p_buffer = []
+            p_buffer = [0.0] * len(self.joint_mapping)
+
             for p in range( len(line) ):
 
                 try:
@@ -84,7 +89,10 @@ class TrajectoryReader():
                 except KeyError:
                     i = None
                 if i is not None:
-                    p_buffer.append(float(line[i]))
+                    p_buffer[i] = float(line[p])
+                else:
+                    continue
+            #print len(p_buffer)
 
             # ---------------------------------------
             # Fills velocity buffer using finite deferencing
@@ -130,11 +138,13 @@ class TrajectoryReader():
         # Sends trajectory as a goal
         print "client started, sending trajectory!"
         res = None
-        rospy.sleep(1.0)
+        #rospy.sleep(1.0)
         traj_goal = JointTrajectoryGoal()
         traj_goal.trajectory = self.hubo_traj
         traj_goal.trajectory.header.stamp = rospy.Time.now()
         client.send_goal( traj_goal )
+
+        print "Wait for result!"
         client.wait_for_result()
         res = client.get_result()
         print res
@@ -195,8 +205,10 @@ if __name__ == "__main__":
         print joint_mapping
 
         # Loads and executes the trajectory
-        reader = TrajectoryReader( robot_name, joint_mapping )
+        reader = TrajectoryReader( robot_name, joint_names, joint_mapping )
         if reader.loadfile( file_name ):
+            print reader.hubo_traj.joint_names
+            #print reader.hubo_traj
             reader.execute()
             print "done!"
         else:

@@ -76,6 +76,8 @@ bool convert_text_to_num(T& t,
     return !(iss >> f >> t).fail();
 }
 
+void print_vector( Vector vect );
+
 }
 
 #endif // OR_TRAJECTORY_HPP
