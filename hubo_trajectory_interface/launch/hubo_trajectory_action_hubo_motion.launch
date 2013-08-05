@@ -1,0 +1,18 @@
+<launch>
+
+  <arg name="output" default="screen" />
+  <arg name="robot" default="drchubo" />
+
+  <group ns="$(arg robot)_fullbody_controller">
+
+    <node name="hubo_trajectory_hubo_motion_interface" pkg="hubo_trajectory_interface" type="hubo_trajectory_hubo_motion_interface" output="$(arg output)" >
+    <rosparam command="load" file="$(find hubo_launch)/config/$(arg robot)_fullbody_params.yaml" />
+    </node>
+
+    <node name="hubo_trajectory_action" pkg="hubo_trajectory_interface" type="hubo_trajectory_action" output="$(arg output)" >
+      <rosparam command="load" file="$(find hubo_launch)/config/$(arg robot)_fullbody_params.yaml" />
+    </node>
+
+  </group>
+
+</launch>
