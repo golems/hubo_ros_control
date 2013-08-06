@@ -84,6 +84,9 @@ public:
     //! way points are linearly interpolated, sends values at 200Hz through ach
     virtual bool execute_linear_trajectory();
 
+    //! Spins the node and lauches when a trajectory is received
+    virtual void main_loop();
+
 protected:
     ros::NodeHandle node_;
     ros::NodeHandle nhp_;

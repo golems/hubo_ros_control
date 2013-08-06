@@ -45,6 +45,8 @@ using std::cout;
 using std::endl;
 
 /*
+ * Node must be run with root privileges (sudo su and edit the bashrc of root)
+ * from their roslaunch the action server and this node
  * We should add cancelation of the trajectory execution at this point
  *
  * These values may need to be experimentally determined, and the SPIN_RATE parameter
@@ -70,7 +72,7 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
 
     ROS_INFO( "Attempting to start JointTrajectoryAction controller interface..." );
 
-    // Get all the active joint names
+    // Gets all the active joint names
     XmlRpc::XmlRpcValue joint_names;
     if (!nhp_.getParam("joints", joint_names))
     {
@@ -107,21 +109,21 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
     }
     active_joints_ = all_joints_;
 
-    // Set up state publisher
+    // Sets up state publisher
     std::string pub_path = node_.getNamespace() + "/state";
     state_pub_ = node_.advertise<hubo_robot_msgs::JointTrajectoryState>(pub_path, 1);
 
-    // Set up clock publisher
+    // Sets up clock publisher
     clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
 
-    // Set up the trajectory subscriber
+    // Sets up the trajectory subscriber
     std::string sub_path = node_.getNamespace() + "/command";
     traj_sub_ = node_.subscribe( sub_path, 1, &HuboMotionRtController::trajectory_cb, this );
     ROS_INFO("Loaded trajectory interface to hubo-motion-rt");
 
     running_ = false;
 
-    // Set up Hubo Control daemon (hubo-motion-rt)
+    // Sets up Hubo Control daemon (hubo-motion-rt)
     hubo_ = new Hubo_Control();
     ROS_INFO("Hubo_Control has started!!!!");
 
@@ -143,10 +145,21 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
     // Pre-fault our stack
     stack_prefault();
 
-    // Set up the thread for getting data from hubo and publishing it
+    // Sets up the thread for getting data from hubo and publishing it
     pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
 
-    // Spin until killed
+    // Starts main loop
+    main_loop();
+}
+
+HuboMotionRtController::~HuboMotionRtController()
+{
+    shut_down();
+}
+
+void HuboMotionRtController::main_loop()
+{
+    // Spins until killed
     while (ros::ok())
     {
         //ROS_INFO("loop in robot-motion-rt controller");
@@ -162,11 +175,6 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
         ros::Rate looprate( SPIN_RATE );
         looprate.sleep();
     }
-}
-
-HuboMotionRtController::~HuboMotionRtController()
-{
-    shut_down();
 }
 
 void HuboMotionRtController::shut_down()
