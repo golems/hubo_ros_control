@@ -209,7 +209,7 @@ if __name__ == "__main__":
     frequency = 25
     play = False
 
-    accepted_freq = [100, 50, 25, 10, 200, 500]
+    accepted_freq = [100, 50, 25, 17, 10, 200, 500]
 
     if(len(sys.argv) >= 2):
 

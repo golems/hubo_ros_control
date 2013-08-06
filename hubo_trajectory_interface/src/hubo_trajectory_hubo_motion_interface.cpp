@@ -19,7 +19,7 @@
  * CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
  * SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
  * INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
- * CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+* CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
  * ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
  * POSSIBILITY OF SUCH DAMAGE.
  *
@@ -53,12 +53,17 @@ using std::endl;
  * may need to dynamically change based on the timings on the incoming trajectory.
 */
 
+// Timing info
+#define NSEC_PER_SEC    1000000000
+
 #define MAX_TRAJ_LENGTH 10 //Number of points in each trajectory chunk
 static double SPIN_RATE = 3.0; // Rate in hertz at which to send trajectory chunks
 
 #define MAX_SAFE_STACK (1024*1024) /* The maximum stack size which is
     guaranteed safe to access without
     faulting */
+
+static int interval = 5000000; // 200 hz (0.005 sec)
 
 void stack_prefault(void) {
     unsigned char dummy[MAX_SAFE_STACK];
@@ -114,7 +119,7 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
     state_pub_ = node_.advertise<hubo_robot_msgs::JointTrajectoryState>(pub_path, 1);
 
     // Sets up clock publisher
-    clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
+    //clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
 
     // Sets up the trajectory subscriber
     std::string sub_path = node_.getNamespace() + "/command";
@@ -212,14 +217,39 @@ void HuboMotionRtController::publish_loop()
     // Initialize time
     int nb_loops = 0;
     publish_average_periode_ = 0.0;
-    hubo_->update(true);
-    double t_last = hubo_->getTime();
+    double t_last = get_time();
     double t_total = 0.0;
+    const double dt = 0.005; // 200Hz
+
+    struct timespec t;
+    clock_gettime( 0,&t);
+
+    // Publish the latest hubo state back out
+    hubo_robot_msgs::JointTrajectoryState cur_state;
+    // Set the names
+    cur_state.joint_names = joint_names_;
+    size_t num_joints = cur_state.joint_names.size();
+    // Make the empty states
+    trajectory_msgs::JointTrajectoryPoint cur_setpoint;
+    trajectory_msgs::JointTrajectoryPoint cur_actual;
+    trajectory_msgs::JointTrajectoryPoint cur_error;
+    // Resize the states
+    cur_setpoint.positions.resize(num_joints);
+    cur_setpoint.velocities.resize(num_joints);
+    cur_setpoint.accelerations.resize(num_joints);
+    cur_actual.positions.resize(num_joints);
+    cur_actual.velocities.resize(num_joints);
+    cur_actual.accelerations.resize(num_joints);
+    cur_error.positions.resize(num_joints);
+    cur_error.velocities.resize(num_joints);
+    cur_error.accelerations.resize(num_joints);
 
     // Loop until node shutdown
     while (ros::ok())
     {
-        size_t fs;
+        clock_nanosleep(0,TIMER_ABSTIME,&t, NULL);
+        
+	size_t fs;
 
         // Get latest state from HUBO-MOTION (this is used to populate the desired values)
         ach_status_t r = ach_get( &chan_hubo_ctrl_state_pub_,  &H_ctrl_state, sizeof(H_ctrl_state), &fs, NULL, ACH_O_LAST );
@@ -235,26 +265,8 @@ void HuboMotionRtController::publish_loop()
             continue;
         }
 
-        // Publish the latest hubo state back out
-        hubo_robot_msgs::JointTrajectoryState cur_state;
-        cur_state.header.stamp = ros::Time::now();
-        // Set the names
-        cur_state.joint_names = joint_names_;
-        size_t num_joints = cur_state.joint_names.size();
-        // Make the empty states
-        trajectory_msgs::JointTrajectoryPoint cur_setpoint;
-        trajectory_msgs::JointTrajectoryPoint cur_actual;
-        trajectory_msgs::JointTrajectoryPoint cur_error;
-        // Resize the states
-        cur_setpoint.positions.resize(num_joints);
-        cur_setpoint.velocities.resize(num_joints);
-        cur_setpoint.accelerations.resize(num_joints);
-        cur_actual.positions.resize(num_joints);
-        cur_actual.velocities.resize(num_joints);
-        cur_actual.accelerations.resize(num_joints);
-        cur_error.positions.resize(num_joints);
-        cur_error.velocities.resize(num_joints);
-        cur_error.accelerations.resize(num_joints);
+	cur_state.header.stamp = ros::Time::now();
+
         // Fill in the setpoint and actual & calc the error_ in the process
         for (size_t i=0; i<num_joints; i++)
         {
@@ -284,17 +296,32 @@ void HuboMotionRtController::publish_loop()
         state_pub_.publish( cur_state );
 
         // Publish Time
-        hubo_->update(true);
-        double t_cur = hubo_->getTime();
-        rosgraph_msgs::Clock clockmsg;
-        clockmsg.clock = ros::Time( t_cur );
-        clock_pub_.publish( clockmsg );
+        double t_end;
+        //rosgraph_msgs::Clock clockmsg;
+        //clockmsg.clock = ros::Time( t_cur );
+        //clock_pub_.publish( clockmsg );
 
+	t_end = get_time();
+	
         // Compute average publishing periode
-        t_total += (t_cur - t_last); // add periode to total time
+        t_total += (t_end - t_last); // add periode to total time
         publish_average_periode_ = t_total / double(++nb_loops);
-        t_last = t_cur;
+        t_last = t_end;
+
+	// Waits to attain user specified frequency
+	t.tv_nsec+=interval;
+	tsnorm(&t);
     }
+}
+
+//! compute t
+void HuboMotionRtController::tsnorm( struct timespec* t )
+{
+  // calculates the next shot
+   while (t->tv_nsec >= NSEC_PER_SEC) {
+       t->tv_nsec -= NSEC_PER_SEC;
+       t->tv_sec++;
+   }
 }
 
 //! Given a string name of a joint, it looks it up in the list of joint names
@@ -389,9 +416,9 @@ void HuboMotionRtController::trajectory_cb( const hubo_robot_msgs::JointTrajecto
 double HuboMotionRtController::get_time()
 {
     // TODO implement a good simulation mode (test wether the call to ach is expesive)
-    //hubo_->update(true);
-    //double time = hubo_->getTime();
-    //return time;
+    // hubo_->update(true);
+    // double time = hubo_->getTime();
+    // return time;
     timeval tim;
     gettimeofday(&tim, NULL);
     double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
@@ -467,6 +494,9 @@ bool HuboMotionRtController::execute_linear_trajectory()
     int over_shoot = 0;
     commands_average_periode_ = 0.0;
 
+    struct timespec t;
+    clock_gettime( 0, &t );
+
     for(int i=0; i<int(active_joints_.size()); i++)
     {
         int jnt = active_joints_[i];
@@ -481,6 +511,8 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
     while( t_cur <= t_length )
     {
+        clock_nanosleep(0,TIMER_ABSTIME,&t, NULL);
+
         // TODO implement a debugging tool (statistics on over shoot)
         Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t_cur );
         Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t_cur + dt );
@@ -500,26 +532,20 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
         hubo_->sendControls();
 
-        // Waits to attain user specified frequency
-        bool first_wait = true;
-        do
-        {
-            t_end =  time_from_ref( t_start );
-
-            if( first_wait && (( t_end - t_cur ) > ( dt - 1e-6 )) )
-                over_shoot++;
-
-            first_wait = false;
-        }
-        while( ( t_end - t_cur ) <= ( dt - 1e-6 ) );
+	t_end = time_from_ref( t_start );
 
         // Computes average publishing periode
-        t_total += (t_cur - t_end); // add periode to total time
+        t_total += (t_end - t_cur); // add periode to total time
         commands_average_periode_ = t_total / double(++nb_loops);
         t_cur = t_end;
+
+	// Waits to attain user specified frequency
+	t.tv_nsec+=interval;
+	tsnorm(&t);
     }
 
-    ROS_INFO( "Nb of over shoots : %d", over_shoot );
+    ROS_INFO( "Total time : %f", t_total );
+    ROS_INFO( "Nb Loops : %d", nb_loops );
     ROS_INFO( "Command rate : %f sec, (%f Hz)", commands_average_periode_, double(1)/commands_average_periode_ );
 
     double pub_average = publish_average_periode_;

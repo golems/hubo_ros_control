@@ -65,6 +65,8 @@ public:
     //! Sets the compliance mode, proceeds to hubo-ach joint mapping,
     virtual void trajectory_cb( const hubo_robot_msgs::JointTrajectory& ros_traj );
 
+    void tsnorm(struct timespec *ts);
+
     //! Gets the current time from hubo-ach
     double get_time();
 
@@ -95,6 +97,8 @@ protected:
     ros::Publisher state_pub_;
     ros::Publisher clock_pub_;
     ros::Subscriber traj_sub_;
+
+    struct timespec* ts_;
 
     // Thread for listening to the hubo state and republishing it
     boost::thread* pub_thread_;
