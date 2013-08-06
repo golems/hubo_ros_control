@@ -187,9 +187,10 @@ class TrajectoryReader():
         print "client started, sending trajectory!"
         res = None
         #rospy.sleep(1.0)
+        self.hubo_traj.header.stamp = rospy.Time.now()
         traj_goal = JointTrajectoryGoal()
         traj_goal.trajectory = self.hubo_traj
-        traj_goal.trajectory.header.stamp = rospy.Time.now()
+        traj_goal.trajectory.header.stamp = rospy.Time.now() + rospy.Duration.from_sec(1.0)
         client.send_goal( traj_goal )
 
         print "Wait for result!"

@@ -27,10 +27,6 @@
 
 /* Author: Jim Mainprice (WPI) */
 
-#include <stdlib.h>
-#include <vector>
-// System includes to handle safe shutdown
-#include <signal.h>
 // ROS & includes
 #include <ros/ros.h>
 // Boost includes
@@ -48,9 +44,18 @@
 // Boost includes
 #include <boost/thread.hpp>
 
+// for RT
+#include <stdlib.h>
+#include <sys/mman.h>
+
+// Basics
 #include <iostream>
 #include <sys/time.h>
 #include <unistd.h>
+#include <stdlib.h>
+#include <vector>
+// System includes to handle safe shutdown
+#include <signal.h>
 
 // Thread for listening to the hubo state and republishing it
 boost::thread* pub_thread;
@@ -67,10 +72,19 @@ using std::endl;
 */
 
 #define MAX_TRAJ_LENGTH 10 //Number of points in each trajectory chunk
-static double SPIN_RATE = 40.0; // Rate in hertz at which to send trajectory chunks
+static double SPIN_RATE = 3.0; // Rate in hertz at which to send trajectory chunks
 
 //#define ON true
 //#define OFF false
+
+#define MAX_SAFE_STACK (1024*1024) /* The maximum stack size which is
+                                   guaranteed safe to access without
+                                   faulting */
+
+void stack_prefault(void) {
+  unsigned char dummy[MAX_SAFE_STACK];
+  memset( dummy, 0, MAX_SAFE_STACK );
+}
 
 class HuboMotionRtController
 {
@@ -119,12 +133,9 @@ public:
             nhp_.param( ns + "/huboachid", h, -1);
             joint_mapping_[joint_names_[i]] = h;
             all_joints_.push_back( h );
-            ROS_INFO( "joint_names_[%d] : %s\n", i, joint_names_[i].c_str() );
+            //ROS_INFO( "joint_names_[%d] : %s\n", i, joint_names_[i].c_str() );
         }
         active_joints_ = all_joints_;
-
-        // Set up Hubo Control daemon (hubo-motion-rt)
-        hubo_ = new Hubo_Control(false);
 
         // Set up state publisher
         std::string pub_path = node_.getNamespace() + "/state";
@@ -139,6 +150,28 @@ public:
         ROS_INFO("Loaded trajectory interface to hubo-motion-rt");
 
         running_ = false;
+
+        // Set up Hubo Control daemon (hubo-motion-rt)
+        hubo_ = new Hubo_Control(); 
+	ROS_INFO("Hubo_Control has started!!!!");
+
+	// RT 
+        struct sched_param param;
+        // Declare ourself as a real time task 
+        param.sched_priority = 49; // 49 is higest priority
+        if(sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
+	  ROS_FATAL("sched_setscheduler failed");
+	  exit(1);
+        }
+
+        // Lock memory 
+        if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
+	  ROS_FATAL("mlockall failed");
+	  exit(-2);
+        }
+
+        // Pre-fault our stack 
+        stack_prefault();
 
         // Set up the thread for getting data from hubo and publishing it
         pub_thread = new boost::thread( &HuboMotionRtController::publish_loop, this );
@@ -400,13 +433,13 @@ private:
     //! Gets the current time from hubo-ach
     double get_time()
     {
-        hubo_->update(true);
-        double time = hubo_->getTime();
-        return time;
-        // timeval tim;
-        // gettimeofday(&tim, NULL);
-        // double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
-        // return tu;
+      //hubo_->update(true);
+      //double time = hubo_->getTime();
+      //return time;
+      timeval tim;
+        gettimeofday(&tim, NULL);
+        double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
+        return tu;
     }
 
     //! Gets the elapsed time from a reference time
@@ -488,6 +521,7 @@ private:
 
         while( t <= t_length )
         {
+	  //cout << "t : " << t << endl; 
             Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t );
             Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t + dt_ );
 
@@ -510,7 +544,7 @@ private:
                 t_end =  time_from_ref( t_start );
                 //cout << "get new time" << endl;
             }
-            while( t_end - t < dt_ );
+            while( t_end - t <= ( dt_ - 1e-6 ) );
 
             t = t_end;
         }
