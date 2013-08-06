@@ -27,39 +27,19 @@
 
 /* Author: Jim Mainprice (WPI) */
 
-// ROS & includes
-#include <ros/ros.h>
-// Boost includes
-#include <boost/thread.hpp>
-// Message and action includes for Hubo actions
-#include <hubo_robot_msgs/JointTrajectory.h>
-#include <hubo_robot_msgs/JointTrajectoryState.h>
-#include <trajectory_msgs/JointTrajectoryPoint.h>
-#include <hubo_robot_msgs/ComplianceConfig.h>
-#include <rosgraph_msgs/Clock.h>
-// Includes for ACH and hubo-motion-rt
-#include <hubo_components/hubo_components/Hubo_Control.h>
 // Trajectory structure
-#include <hubo_trajectory_interface/hubo_trajectory.hpp>
-// Boost includes
-#include <boost/thread.hpp>
+#include <hubo_trajectory_interface/hubo_trajectory_hubo_motion_interface.hpp>
 
 // for RT
 #include <stdlib.h>
 #include <sys/mman.h>
 
-// Basics
-#include <iostream>
-#include <sys/time.h>
-#include <unistd.h>
-#include <stdlib.h>
 #include <vector>
 // System includes to handle safe shutdown
 #include <signal.h>
-
-// Thread for listening to the hubo state and republishing it
-boost::thread* pub_thread;
-boost::thread* traj_thread;
+#include <iostream>
+#include <sys/time.h>
+#include <unistd.h>
 
 using std::cout;
 using std::endl;
@@ -74,487 +54,442 @@ using std::endl;
 #define MAX_TRAJ_LENGTH 10 //Number of points in each trajectory chunk
 static double SPIN_RATE = 3.0; // Rate in hertz at which to send trajectory chunks
 
-//#define ON true
-//#define OFF false
-
 #define MAX_SAFE_STACK (1024*1024) /* The maximum stack size which is
-                                   guaranteed safe to access without
-                                   faulting */
+    guaranteed safe to access without
+    faulting */
 
 void stack_prefault(void) {
-  unsigned char dummy[MAX_SAFE_STACK];
-  memset( dummy, 0, MAX_SAFE_STACK );
+    unsigned char dummy[MAX_SAFE_STACK];
+    memset( dummy, 0, MAX_SAFE_STACK );
 }
 
-class HuboMotionRtController
+HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n), nhp_("~")
 {
-public:
-    HuboMotionRtController( ros::NodeHandle &n ) : node_(n), nhp_("~")
+    running_;
+    hubo_=NULL;
+
+    ROS_INFO( "Attempting to start JointTrajectoryAction controller interface..." );
+
+    // Get all the active joint names
+    XmlRpc::XmlRpcValue joint_names;
+    if (!nhp_.getParam("joints", joint_names))
     {
-        g_tid = 0;
-        running_;
-        next_chunk_sent_;
-        wait_for_new_state_;
-        filename_ = "test_data/valve_turning.traj";
-        hubo_=NULL;
-
-        ROS_INFO( "Attempting to start JointTrajectoryAction controller interface..." );
-
-        // Get all the active joint names
-        XmlRpc::XmlRpcValue joint_names;
-        if (!nhp_.getParam("joints", joint_names))
+        ROS_FATAL("No joints given. (namespace: %s)", nhp_.getNamespace().c_str());
+        exit(1);
+    }
+    if (joint_names.getType() != XmlRpc::XmlRpcValue::TypeArray)
+    {
+        ROS_FATAL("Malformed joint specification.  (namespace: %s)", nhp_.getNamespace().c_str());
+        exit(1);
+    }
+    for ( int i=0; i<int(joint_names.size()); i++ )
+    {
+        XmlRpc::XmlRpcValue &name_value = joint_names[i];
+        if (name_value.getType() != XmlRpc::XmlRpcValue::TypeString)
         {
-            ROS_FATAL("No joints given. (namespace: %s)", nhp_.getNamespace().c_str());
+            ROS_FATAL("Array of joint names should contain all strings.  (namespace: %s)", nhp_.getNamespace().c_str());
             exit(1);
         }
-        if (joint_names.getType() != XmlRpc::XmlRpcValue::TypeArray)
-        {
-            ROS_FATAL("Malformed joint specification.  (namespace: %s)", nhp_.getNamespace().c_str());
-            exit(1);
-        }
-        for ( int i=0; i<int(joint_names.size()); i++ )
-        {
-            XmlRpc::XmlRpcValue &name_value = joint_names[i];
-            if (name_value.getType() != XmlRpc::XmlRpcValue::TypeString)
-            {
-                ROS_FATAL("Array of joint names should contain all strings.  (namespace: %s)", nhp_.getNamespace().c_str());
-                exit(1);
-            }
-            joint_names_.push_back( std::string(name_value) );
-        }
-
-        all_joints_.clear();
-
-        // Gets the hubo ach index for each joint
-        for ( int i=0; i<int(joint_names_.size()); i++ )
-        {
-            std::string ns = std::string("mapping/") + joint_names_[i];
-            int h;
-            nhp_.param( ns + "/huboachid", h, -1);
-            joint_mapping_[joint_names_[i]] = h;
-            all_joints_.push_back( h );
-            //ROS_INFO( "joint_names_[%d] : %s\n", i, joint_names_[i].c_str() );
-        }
-        active_joints_ = all_joints_;
-
-        // Set up state publisher
-        std::string pub_path = node_.getNamespace() + "/state";
-        state_pub_ = node_.advertise<hubo_robot_msgs::JointTrajectoryState>(pub_path, 1);
-
-        // Set up clock publisher
-        clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
-
-        // Set up the trajectory subscriber
-        std::string sub_path = node_.getNamespace() + "/command";
-        traj_sub_ = node_.subscribe( sub_path, 1, &HuboMotionRtController::trajectory_cb, this );
-        ROS_INFO("Loaded trajectory interface to hubo-motion-rt");
-
-        running_ = false;
-
-        // Set up Hubo Control daemon (hubo-motion-rt)
-        hubo_ = new Hubo_Control(); 
-	ROS_INFO("Hubo_Control has started!!!!");
-
-	// RT 
-        struct sched_param param;
-        // Declare ourself as a real time task 
-        param.sched_priority = 49; // 49 is higest priority
-        if(sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
-	  ROS_FATAL("sched_setscheduler failed");
-	  exit(1);
-        }
-
-        // Lock memory 
-        if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
-	  ROS_FATAL("mlockall failed");
-	  exit(-2);
-        }
-
-        // Pre-fault our stack 
-        stack_prefault();
-
-        // Set up the thread for getting data from hubo and publishing it
-        pub_thread = new boost::thread( &HuboMotionRtController::publish_loop, this );
-
-        // Spin until killed
-        while (ros::ok())
-        {
-            //ROS_INFO("loop in robot-motion-rt controller");
-            if( !running_ && !hubo_traj_.empty() )
-            {
-                running_ = true;
-                // starts the thread for trajectory execution
-                traj_thread = new boost::thread( &HuboMotionRtController::execute_linear_trajectory, this );
-            }
-
-            // Wait long enough before sending the next one and receiving the running signal
-            ros::spinOnce();
-            ros::Rate looprate(SPIN_RATE);
-            looprate.sleep();
-        }
+        joint_names_.push_back( std::string(name_value) );
     }
 
-    ~HuboMotionRtController()
+    all_joints_.clear();
+
+    // Gets the hubo ach index for each joint
+    for ( int i=0; i<int(joint_names_.size()); i++ )
     {
-        shut_down();
+        std::string ns = std::string("mapping/") + joint_names_[i];
+        int h;
+        nhp_.param( ns + "/huboachid", h, -1);
+        joint_mapping_[joint_names_[i]] = h;
+        all_joints_.push_back( h );
+        //ROS_INFO( "joint_names_[%d] : %s\n", i, joint_names_[i].c_str() );
+    }
+    active_joints_ = all_joints_;
+
+    // Set up state publisher
+    std::string pub_path = node_.getNamespace() + "/state";
+    state_pub_ = node_.advertise<hubo_robot_msgs::JointTrajectoryState>(pub_path, 1);
+
+    // Set up clock publisher
+    clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
+
+    // Set up the trajectory subscriber
+    std::string sub_path = node_.getNamespace() + "/command";
+    traj_sub_ = node_.subscribe( sub_path, 1, &HuboMotionRtController::trajectory_cb, this );
+    ROS_INFO("Loaded trajectory interface to hubo-motion-rt");
+
+    running_ = false;
+
+    // Set up Hubo Control daemon (hubo-motion-rt)
+    hubo_ = new Hubo_Control();
+    ROS_INFO("Hubo_Control has started!!!!");
+
+    // RT
+    struct sched_param param;
+    // Declare ourself as a real time task
+    param.sched_priority = 49; // 49 is higest priority
+    if(sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
+        ROS_FATAL("sched_setscheduler failed");
+        exit(1);
     }
 
-    void shut_down()
-    {
-        hubo_traj_.clear();
-        ROS_INFO("Starting safe shutdown...");
-
-        //pub_thread->join();
-        ROS_INFO("All threads done");
-
-        ach_close(&chan_hubo_ctrl_state_pub_);
-        ROS_INFO("ach channels closed shutting down!");
-
-        ros::shutdown();
+    // Lock memory
+    if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
+        ROS_FATAL("mlockall failed");
+        exit(-2);
     }
 
-private:
-    ros::NodeHandle node_;
-    ros::NodeHandle nhp_;
+    // Pre-fault our stack
+    stack_prefault();
 
-    // Joint name and mapping storage
-    std::vector<std::string> joint_names_;
-    std::map<std::string,int> joint_mapping_;
+    // Set up the thread for getting data from hubo and publishing it
+    pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
 
-    // Compliance
-    std::vector<std::string> compliant_joint_names_;
-    std::vector<double> compliance_kp_;
-    std::vector<double> compliance_kd_;
-
-    // Trajectory storage
-    int g_tid;
-
-    // Publisher and subscriber
-    ros::Publisher state_pub_;
-    ros::Publisher clock_pub_;
-    ros::Subscriber traj_sub_;
-
-    std::string filename_;
-    std::vector<int> all_joints_;
-    std::vector<int> active_joints_;
-    std::vector<double> error_;
-
-    Hubo_Control* hubo_;
-    Hubo::Trajectory hubo_traj_;
-    ach_channel_t chan_hubo_ctrl_state_pub_;
-
-    // Execution state
-    bool running_;
-    bool next_chunk_sent_;
-    bool wait_for_new_state_;
-
-    //! This runs in a second thread in the background.
-    //! The thread grabs the latest states and setpoints from hubo's joints
-    //! and repacks them into ROS messages sent to the trajectory action server.
-    void publish_loop()
+    // Spin until killed
+    while (ros::ok())
     {
-        ROS_INFO("publishLoop");
-
-        ach_status_t r;
-        r = ach_open( &chan_hubo_ctrl_state_pub_,  CTRL_CHAN_STATE, NULL );
-        if (r != ACH_OK)
+        //ROS_INFO("loop in robot-motion-rt controller");
+        if( !running_ && !hubo_traj_.empty() )
         {
-            ROS_FATAL("Could not open ACH channel: CTRL_CHAN_STATE !");
-            exit(1);
+            running_ = true;
+            // starts the thread for trajectory execution
+            traj_thread_ = new boost::thread( &HuboMotionRtController::execute_linear_trajectory, this );
         }
 
-        hubo_ctrl_state_t H_ctrl_state;
-        memset(&H_ctrl_state, 0, sizeof(H_ctrl_state));
+        // Wait long enough before sending the next one and receiving the running signal
+        ros::spinOnce();
+        ros::Rate looprate( SPIN_RATE );
+        looprate.sleep();
+    }
+}
 
-        // Loop until node shutdown
-        while (ros::ok())
-        {
-            size_t fs;
+HuboMotionRtController::~HuboMotionRtController()
+{
+    shut_down();
+}
 
-            // Get latest state from HUBO-MOTION (this is used to populate the desired values)
-            ach_status_t r = ach_get( &chan_hubo_ctrl_state_pub_,  &H_ctrl_state, sizeof(H_ctrl_state), &fs, NULL, ACH_O_LAST );
+void HuboMotionRtController::shut_down()
+{
+    hubo_traj_.clear();
+    ROS_INFO("Starting safe shutdown...");
 
-            if( r != ACH_OK && r != ACH_MISSED_FRAME && r != ACH_STALE_FRAMES )
-            {
-                ROS_ERROR("get ach channel for H_ctrl_state failed in [publishing loop] : %s" , ach_result_to_string(r) );
-                //continue;
-            }
-            else if (fs != sizeof(H_ctrl_state))
-            {
-                //ROS_ERROR("Hubo ref size error! [publishing loop] with ach channel %s" , ach_result_to_string(r));
-                continue;
-            }
+    //pub_thread->join();
+    ROS_INFO("All threads done");
 
-            // Publish the latest hubo state back out
-            hubo_robot_msgs::JointTrajectoryState cur_state;
-            cur_state.header.stamp = ros::Time::now();
-            // Set the names
-            cur_state.joint_names = joint_names_;
-            size_t num_joints = cur_state.joint_names.size();
-            // Make the empty states
-            trajectory_msgs::JointTrajectoryPoint cur_setpoint;
-            trajectory_msgs::JointTrajectoryPoint cur_actual;
-            trajectory_msgs::JointTrajectoryPoint cur_error;
-            // Resize the states
-            cur_setpoint.positions.resize(num_joints);
-            cur_setpoint.velocities.resize(num_joints);
-            cur_setpoint.accelerations.resize(num_joints);
-            cur_actual.positions.resize(num_joints);
-            cur_actual.velocities.resize(num_joints);
-            cur_actual.accelerations.resize(num_joints);
-            cur_error.positions.resize(num_joints);
-            cur_error.velocities.resize(num_joints);
-            cur_error.accelerations.resize(num_joints);
-            // Fill in the setpoint and actual & calc the error_ in the process
-            for (size_t i=0; i<num_joints; i++)
-            {
-                // Fill in the setpoint and actual data
-                // Values that we don't have data for are set to NAN
-                int hubo_index = index_lookup( cur_state.joint_names[i] );
-                if (hubo_index >= 0)
-                {
-                    cur_setpoint.positions[i]       = H_ctrl_state.requested_pos[hubo_index];
-                    cur_setpoint.velocities[i]      = H_ctrl_state.requested_vel[hubo_index];
-                    cur_setpoint.accelerations[i]   = H_ctrl_state.requested_acc[hubo_index];
+    ach_close(&chan_hubo_ctrl_state_pub_);
+    ROS_INFO("ach channels closed shutting down!");
 
-                    cur_actual.positions[i]         = H_ctrl_state.actual_pos[hubo_index];
-                    cur_actual.velocities[i]        = H_ctrl_state.actual_vel[hubo_index];
-                    cur_actual.accelerations[i]     = H_ctrl_state.actual_acc[hubo_index];
-                    // Calc the error
-                    cur_error.positions[i] =        cur_setpoint.positions[i] -     cur_actual.positions[i];
-                    cur_error.velocities[i] =       cur_setpoint.velocities[i] -    cur_actual.velocities[i];
-                    cur_error.accelerations[i] =    cur_setpoint.accelerations[i] - cur_actual.accelerations[i];
-                }
-            }
+    ros::shutdown();
+}
 
-            // Publish State (pack them together)
-            cur_state.desired = cur_setpoint;
-            cur_state.actual = cur_actual;
-            cur_state.error = cur_error;
-            state_pub_.publish( cur_state );
+//! This runs in a second thread in the background.
+//! The thread grabs the latest states and setpoints from hubo's joints
+//! and repacks them into ROS messages sent to the trajectory action server.
+void HuboMotionRtController::publish_loop()
+{
+    ROS_INFO("publishLoop");
 
-            // Publish Time
-            hubo_->update(true);
-            rosgraph_msgs::Clock clockmsg;
-            clockmsg.clock = ros::Time( hubo_->getTime());
-            clock_pub_.publish( clockmsg );
-            //ROS_INFO("TIME is : %f sec", H_state.time );
-        }
+    ach_status_t r;
+    r = ach_open( &chan_hubo_ctrl_state_pub_,  CTRL_CHAN_STATE, NULL );
+    if (r != ACH_OK)
+    {
+        ROS_FATAL("Could not open ACH channel: CTRL_CHAN_STATE !");
+        exit(1);
     }
 
-    //! Given a string name of a joint, it looks it up in the list of joint names
-    //! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
-    int index_lookup( const std::string& joint_name )
+    hubo_ctrl_state_t H_ctrl_state;
+    memset(&H_ctrl_state, 0, sizeof(H_ctrl_state));
+
+    // Loop until node shutdown
+    while (ros::ok())
     {
-        for ( int i=0; i<joint_names_.size(); i++ )
+        size_t fs;
+
+        // Get latest state from HUBO-MOTION (this is used to populate the desired values)
+        ach_status_t r = ach_get( &chan_hubo_ctrl_state_pub_,  &H_ctrl_state, sizeof(H_ctrl_state), &fs, NULL, ACH_O_LAST );
+
+        if( r != ACH_OK && r != ACH_MISSED_FRAME && r != ACH_STALE_FRAMES )
         {
-            if( joint_names_[i] == joint_name )
+            ROS_ERROR("get ach channel for H_ctrl_state failed in [publishing loop] : %s" , ach_result_to_string(r) );
+            //continue;
+        }
+        else if (fs != sizeof(H_ctrl_state))
+        {
+            //ROS_ERROR("Hubo ref size error! [publishing loop] with ach channel %s" , ach_result_to_string(r));
+            continue;
+        }
+
+        // Publish the latest hubo state back out
+        hubo_robot_msgs::JointTrajectoryState cur_state;
+        cur_state.header.stamp = ros::Time::now();
+        // Set the names
+        cur_state.joint_names = joint_names_;
+        size_t num_joints = cur_state.joint_names.size();
+        // Make the empty states
+        trajectory_msgs::JointTrajectoryPoint cur_setpoint;
+        trajectory_msgs::JointTrajectoryPoint cur_actual;
+        trajectory_msgs::JointTrajectoryPoint cur_error;
+        // Resize the states
+        cur_setpoint.positions.resize(num_joints);
+        cur_setpoint.velocities.resize(num_joints);
+        cur_setpoint.accelerations.resize(num_joints);
+        cur_actual.positions.resize(num_joints);
+        cur_actual.velocities.resize(num_joints);
+        cur_actual.accelerations.resize(num_joints);
+        cur_error.positions.resize(num_joints);
+        cur_error.velocities.resize(num_joints);
+        cur_error.accelerations.resize(num_joints);
+        // Fill in the setpoint and actual & calc the error_ in the process
+        for (size_t i=0; i<num_joints; i++)
+        {
+            // Fill in the setpoint and actual data
+            // Values that we don't have data for are set to NAN
+            int hubo_index = index_lookup( cur_state.joint_names[i] );
+            if (hubo_index >= 0)
             {
-                return joint_mapping_[joint_names_[i]];
+                cur_setpoint.positions[i]       = H_ctrl_state.requested_pos[hubo_index];
+                cur_setpoint.velocities[i]      = H_ctrl_state.requested_vel[hubo_index];
+                cur_setpoint.accelerations[i]   = H_ctrl_state.requested_acc[hubo_index];
+
+                cur_actual.positions[i]         = H_ctrl_state.actual_pos[hubo_index];
+                cur_actual.velocities[i]        = H_ctrl_state.actual_vel[hubo_index];
+                cur_actual.accelerations[i]     = H_ctrl_state.actual_acc[hubo_index];
+                // Calc the error
+                cur_error.positions[i] =        cur_setpoint.positions[i] -     cur_actual.positions[i];
+                cur_error.velocities[i] =       cur_setpoint.velocities[i] -    cur_actual.velocities[i];
+                cur_error.accelerations[i] =    cur_setpoint.accelerations[i] - cur_actual.accelerations[i];
             }
         }
-        return -1;
-    }
 
-    //! Callback when the ROS trajectory is received.
-    //! Sets the compliance mode, proceeds to hubo-ach joint mapping,
-    void trajectory_cb( const hubo_robot_msgs::JointTrajectory& ros_traj )
-    {
-        ROS_INFO("Trajectory received");
+        // Publish State (pack them together)
+        cur_state.desired = cur_setpoint;
+        cur_state.actual = cur_actual;
+        cur_state.error = cur_error;
+        state_pub_.publish( cur_state );
 
-        // Before we do anything, check if the trajectory is empty
-        // this is a special "stop" value that flushes the current stored trajectory
-        if ( ros_traj.points.empty() )
-        {
-            ROS_INFO("Flushing current trajectory");
-            return;
-        }
-
-        ROS_INFO("Reprocessing trajectory with %ld elements into chunks", ros_traj.points.size());
-
-        // Set trajectory
-        hubo_traj_.clear();
-
-        // Set compliance
-        compliant_joint_names_ = ros_traj.compliance.joint_names;
-        if( !compliant_joint_names_.empty() )
-        {
-            compliance_kp_ = ros_traj.compliance.compliance_kp;
-            compliance_kd_ = ros_traj.compliance.compliance_kd;
-        }
-
-        ros::Duration base_time(0.0);
-
-        // Get hubo current config
+        // Publish Time
         hubo_->update(true);
-        Hubo::Milestone q_cur; // Hubo::Milestone is defined in hubo_trajectory.hpp
-        q_cur.second.resize( HUBO_JOINT_COUNT );
-        for ( size_t i=0; i<q_cur.second.size(); i++)
-            q_cur.second[i] = hubo_->getJointAngleState( i );
+        rosgraph_msgs::Clock clockmsg;
+        clockmsg.clock = ros::Time( hubo_->getTime());
+        clock_pub_.publish( clockmsg );
+        //ROS_INFO("TIME is : %f sec", H_state.time );
+    }
+}
 
-        // Process all points
-        for ( size_t i=0; i<ros_traj.points.size();i++ )
+//! Given a string name of a joint, it looks it up in the list of joint names
+//! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
+int HuboMotionRtController::index_lookup( const std::string& joint_name )
+{
+    for ( int i=0; i<joint_names_.size(); i++ )
+    {
+        if( joint_names_[i] == joint_name )
         {
-            // Make sure the JointTrajectoryPoint gets retimed to match its new trajectory chunk
-            trajectory_msgs::JointTrajectoryPoint cur_point = ros_traj.points[i];
-
-            // Retiming based on the receiving times
-            cur_point.time_from_start = cur_point.time_from_start - base_time;
-
-            // Make sure position, velocity, and acceleration are all the same length
-            int size = cur_point.positions.size();
-            cur_point.velocities.resize(size);
-            cur_point.accelerations.resize(size);
-
-            // Store the point as in linear peicewise trajectory
-            Hubo::Milestone q;
-            q.first = cur_point.time_from_start.toSec();
-            q.second = q_cur.second;
-
-            // Now, overwrite with the commands in the current trajectory
-            for ( size_t j=0; j<cur_point.positions.size(); j++)
-            {
-                int index = index_lookup( ros_traj.joint_names[j] );
-                if (index != -1)
-                {
-                    q.second[index] = cur_point.positions[j];
-                    // TODO have a mode for handleing velocity and acceleration profiles
-                    //processed.velocities[index] = cur_point.velocities[i];
-                    //processed.accelerations[index] = cur_point.accelerations[i];
-                }
-            }
-
-            hubo_traj_.push_back( q );
+            return joint_mapping_[joint_names_[i]];
         }
+    }
+    return -1;
+}
 
-        ROS_INFO("Received a new trajectory with %ld elements", ros_traj.points.size());
+//! Callback when the ROS trajectory is received.
+//! Sets the compliance mode, proceeds to hubo-ach joint mapping,
+void HuboMotionRtController::trajectory_cb( const hubo_robot_msgs::JointTrajectory& ros_traj )
+{
+    ROS_INFO("Trajectory received");
+
+    // Before we do anything, check if the trajectory is empty
+    // this is a special "stop" value that flushes the current stored trajectory
+    if ( ros_traj.points.empty() )
+    {
+        ROS_INFO("Flushing current trajectory");
+        return;
     }
 
-    //! Gets the current time from hubo-ach
-    double get_time()
+    ROS_INFO("Reprocessing trajectory with %ld elements into chunks", ros_traj.points.size());
+
+    // Set trajectory
+    hubo_traj_.clear();
+
+    // Set compliance
+    compliant_joint_names_ = ros_traj.compliance.joint_names;
+    if( !compliant_joint_names_.empty() )
     {
-      //hubo_->update(true);
-      //double time = hubo_->getTime();
-      //return time;
-      timeval tim;
-        gettimeofday(&tim, NULL);
-        double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
-        return tu;
+        compliance_kp_ = ros_traj.compliance.compliance_kp;
+        compliance_kd_ = ros_traj.compliance.compliance_kd;
     }
 
-    //! Gets the elapsed time from a reference time
-    double time_from_ref( const double& t_ref )
-    {
-        return get_time() - t_ref;
-    }
+    ros::Duration base_time(0.0);
 
-    //! Set joint compliance ON, the coefficient are defiended in the trajectory
-    void set_arms_compliance_on()
+    // Get hubo current config
+    hubo_->update(true);
+    Hubo::Milestone q_cur; // Hubo::Milestone is defined in hubo_trajectory.hpp
+    q_cur.second.resize( HUBO_JOINT_COUNT );
+    for ( size_t i=0; i<q_cur.second.size(); i++)
+        q_cur.second[i] = hubo_->getJointAngleState( i );
+
+    // Process all points
+    for ( size_t i=0; i<ros_traj.points.size();i++ )
     {
-        for( size_t i=0;compliant_joint_names_.size(); i++ )
+        // Make sure the JointTrajectoryPoint gets retimed to match its new trajectory chunk
+        trajectory_msgs::JointTrajectoryPoint cur_point = ros_traj.points[i];
+
+        // Retiming based on the receiving times
+        cur_point.time_from_start = cur_point.time_from_start - base_time;
+
+        // Make sure position, velocity, and acceleration are all the same length
+        int size = cur_point.positions.size();
+        cur_point.velocities.resize(size);
+        cur_point.accelerations.resize(size);
+
+        // Store the point as in linear peicewise trajectory
+        Hubo::Milestone q;
+        q.first = cur_point.time_from_start.toSec();
+        q.second = q_cur.second;
+
+        // Now, overwrite with the commands in the current trajectory
+        for ( size_t j=0; j<cur_point.positions.size(); j++)
         {
-            int index = index_lookup( compliant_joint_names_[i] );
+            int index = index_lookup( ros_traj.joint_names[j] );
             if (index != -1)
             {
-                hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
+                q.second[index] = cur_point.positions[j];
+                // TODO have a mode for handleing velocity and acceleration profiles
+                //processed.velocities[index] = cur_point.velocities[i];
+                //processed.accelerations[index] = cur_point.accelerations[i];
             }
         }
+
+        hubo_traj_.push_back( q );
     }
 
-    //! Set arms compliance OFF
-    void set_arms_compliance_off()
+    ROS_INFO("Received a new trajectory with %ld elements", ros_traj.points.size());
+}
+
+//! Gets the current time from hubo-ach
+double HuboMotionRtController::get_time()
+{
+    // TODO implement a good simulation mode (test wether the call to ach is expesive)
+    //hubo_->update(true);
+    //double time = hubo_->getTime();
+    //return time;
+    timeval tim;
+    gettimeofday(&tim, NULL);
+    double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
+    return tu;
+}
+
+//! Gets the elapsed time from a reference time
+double HuboMotionRtController::time_from_ref( const double& t_ref )
+{
+    return get_time() - t_ref;
+}
+
+//! Set joint compliance ON, the coefficient are defiended in the trajectory
+void HuboMotionRtController::set_arms_compliance_on()
+{
+    for( size_t i=0;compliant_joint_names_.size(); i++ )
     {
-        hubo_->setArmCompliance( RIGHT, OFF );
-        hubo_->setArmCompliance( LEFT,  OFF );
-    }
-
-    //! Set nominal velocity
-    void set_nominal_vel_and_acc()
-    {
-        ArmVector rArmSpeedDef, rLegSpeedDef, rArmAccDef, rLegAccDef;
-        LegVector lArmSpeedDef, lLegSpeedDef, lArmAccDef, lLegAccDef;
-
-        hubo_->getArmNomSpeeds( RIGHT, rArmSpeedDef );
-        hubo_->getArmNomSpeeds( LEFT,  lArmSpeedDef );
-        hubo_->getLegNomSpeeds( RIGHT, rLegSpeedDef );
-        hubo_->getLegNomSpeeds( LEFT,   lLegSpeedDef );
-
-        hubo_->getArmNomAcc( RIGHT, rArmAccDef );
-        hubo_->getArmNomAcc( LEFT,  lArmAccDef );
-        hubo_->getLegNomAcc( RIGHT, rLegAccDef );
-        hubo_->getLegNomAcc( LEFT,  lLegAccDef );
-    }
-
-    //! Executes a peicewise linear trajectory
-    //! way points are linearly interpolated, sends values at 200Hz through ach
-    bool execute_linear_trajectory()
-    {
-        if( hubo_ == NULL )
+        int index = index_lookup( compliant_joint_names_[i] );
+        if (index != -1)
         {
-            ROS_WARN("hubo object not initilized");
-            return 0;
+            hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
         }
+    }
+}
 
-        ROS_INFO("Load trajectory ---------------------- ");
-        ROS_INFO("  time length : %f", hubo_traj_.get_length());
-        ROS_INFO("  time nb of milestones : %d", hubo_traj_.get_number_of_milestones());
+//! Set arms compliance OFF
+void HuboMotionRtController::set_arms_compliance_off()
+{
+    hubo_->setArmCompliance( RIGHT, OFF );
+    hubo_->setArmCompliance( LEFT,  OFF );
+}
 
-        set_nominal_vel_and_acc();
+//! Set nominal velocity
+void HuboMotionRtController::set_nominal_vel_and_acc()
+{
+    ArmVector rArmSpeedDef, rLegSpeedDef, rArmAccDef, rLegAccDef;
+    LegVector lArmSpeedDef, lLegSpeedDef, lArmAccDef, lLegAccDef;
 
-        const double dt_ = 0.005; // 200Hz
-        double t_start = get_time();
-        double t_length = hubo_traj_.get_length();
-        double t = time_from_ref( t_start );
-        double t_end;
+    hubo_->getArmNomSpeeds( RIGHT, rArmSpeedDef );
+    hubo_->getArmNomSpeeds( LEFT,  lArmSpeedDef );
+    hubo_->getLegNomSpeeds( RIGHT, rLegSpeedDef );
+    hubo_->getLegNomSpeeds( LEFT,   lLegSpeedDef );
+
+    hubo_->getArmNomAcc( RIGHT, rArmAccDef );
+    hubo_->getArmNomAcc( LEFT,  lArmAccDef );
+    hubo_->getLegNomAcc( RIGHT, rLegAccDef );
+    hubo_->getLegNomAcc( LEFT,  lLegAccDef );
+}
+
+//! Executes a peicewise linear trajectory
+//! way points are linearly interpolated, sends values at 200Hz through ach
+bool HuboMotionRtController::execute_linear_trajectory()
+{
+    if( hubo_ == NULL )
+    {
+        ROS_WARN("hubo object not initilized");
+        return 0;
+    }
+
+    ROS_INFO("Load trajectory ---------------------- ");
+    ROS_INFO("  time length : %f", hubo_traj_.get_length());
+    ROS_INFO("  time nb of milestones : %d", hubo_traj_.get_number_of_milestones());
+
+    set_nominal_vel_and_acc();
+
+    const double dt_ = 0.005; // 200Hz
+    double t_start = get_time();
+    double t_length = hubo_traj_.get_length();
+    double t = time_from_ref( t_start );
+    double t_end;
+
+    for(int i=0; i<int(active_joints_.size()); i++)
+    {
+        int jnt = active_joints_[i];
+        hubo_->setJointTrajCorrectness( jnt, 0.05 );
+    }
+
+    // Set the arm compliance mode
+    if( compliant_joint_names_.empty() )
+        set_arms_compliance_off();
+    else
+        set_arms_compliance_on();
+
+    while( t <= t_length )
+    {
+        // TODO implement a debugging tool (statistics on over shoot)
+        Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t );
+        Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t + dt_ );
+
+        error_.resize( HUBO_JOINT_COUNT, 0.0 );
 
         for(int i=0; i<int(active_joints_.size()); i++)
         {
             int jnt = active_joints_[i];
-            hubo_->setJointTrajCorrectness( jnt, 0.05 );
+
+            // TODO test with smoothing (traj mode)
+            //hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
+            hubo_->passJointAngle( jnt, q_t0[jnt] );
+
+            error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
         }
 
-        // Set the arm compliance mode
-        if( compliant_joint_names_.empty() )
-            set_arms_compliance_off();
-        else
-            set_arms_compliance_on();
+        hubo_->sendControls();
 
-        while( t <= t_length )
+        do
         {
-	  //cout << "t : " << t << endl; 
-            Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t );
-            Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t + dt_ );
-
-            error_.resize( HUBO_JOINT_COUNT, 0.0 );
-
-            for(int i=0; i<int(active_joints_.size()); i++)
-            {
-                int jnt = active_joints_[i];
-
-                //hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
-                hubo_->passJointAngle( jnt, q_t0[jnt] );
-
-                error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
-            }
-
-            hubo_->sendControls();
-
-            do
-            {
-                t_end =  time_from_ref( t_start );
-                //cout << "get new time" << endl;
-            }
-            while( t_end - t <= ( dt_ - 1e-6 ) );
-
-            t = t_end;
+            t_end =  time_from_ref( t_start );
         }
+        while( t_end - t <= ( dt_ - 1e-6 ) );
 
-        hubo_traj_.clear();
-        set_nominal_vel_and_acc();
-        running_ = false;
-        return true;
+        t = t_end;
     }
-};
+
+    hubo_traj_.clear();
+    set_nominal_vel_and_acc();
+    running_ = false;
+    return true;
+}
 
 //! This needs to be global so the signal handler can use it
 HuboMotionRtController* g_hmrc;
