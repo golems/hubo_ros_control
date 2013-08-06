@@ -47,7 +47,8 @@ typedef Milestones::const_iterator MilestonePtr;
 typedef std::map<std::string,int> JointMap;
 typedef std::map<std::string,int>::iterator JointMapPtr;
 
-//! piecewise linear trajectory
+//! Piecewise linear trajectory class
+//! provides a "get configuration at time along trajectory" function
 class Trajectory
 {
 public:
@@ -65,8 +66,7 @@ private:
     Milestones milestones_;
 };
 
-//! function that converts text to num
-//! returns false if fails
+//! Converts text to number, returns false if fails
 template <class T>
 bool convert_text_to_num(T& t,
                          const std::string& s,
@@ -75,6 +75,8 @@ bool convert_text_to_num(T& t,
     std::istringstream iss(s);
     return !(iss >> f >> t).fail();
 }
+
+void print_vector( Vector vect );
 
 }
 

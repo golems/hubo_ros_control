@@ -6,13 +6,22 @@ using namespace Hubo;
 using std::cout;
 using std::endl;
 
+void Hubo::print_vector( Vector vect )
+{
+    for(int i=0;i<vect.size();i++)
+    {
+        cout << vect[i] << " ";
+    }
+    cout << endl;
+}
+
 Trajectory::Trajectory()
 {
 
 }
 
-//! Loads a trajectory in a super set of the hubo-read-trajectory format
-//! each line is a configuration
+//! Loads a trajectory from a file,
+//! each line specifies a configuration
 bool Trajectory::load_from_file( const std::string& filename, double frequency )
 {
     std::vector<Vector> values;
@@ -60,7 +69,7 @@ bool Trajectory::load_from_file( const std::string& filename, double frequency )
     }
 }
 
-//! Set the trajectory time law as equally spaced milestones
+//! Sets the trajectory time law as equally spaced milestones
 void Trajectory::set_milestones_from_path( const std::vector<Vector>& path, double dt )
 {
     milestones_.resize( path.size() );
@@ -83,7 +92,7 @@ void Trajectory::clear()
 }
 
 
-//! add a milestone at the end of the tajectory
+//! Adds a milestone at the end of the tajectory
 void Trajectory::push_back( const Milestone& q )
 {
     milestones_.push_back( q );
@@ -140,7 +149,7 @@ Vector Trajectory::get_config_at_time( double t ) const
     return interpolate( milestones_[p].second, milestones_[i].second, u );
 }
 
-//! Linear interpolation between two configuration
+//! Interpolates linearly two configurations
 Vector Trajectory::interpolate( const Vector& a, const Vector& b, double u ) const
 {
     Vector out;
