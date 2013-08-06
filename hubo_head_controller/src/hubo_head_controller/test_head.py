@@ -25,7 +25,7 @@ def test_head(x, y, z):
     head_client = actionlib.SimpleActionClient("/drchubo_point_head", hrms.PointHeadAction)
     head_client.wait_for_server()
     head_goal = hrms.PointHeadGoal()
-    head_goal.pointing_frame = "/Body_NK2"
+    head_goal.pointing_frame = "/trinocular_base_frame"
     head_goal.pointing_axis.x = 1.0
     head_goal.target.header.frame_id = "/Body_Torso"
     head_goal.target.point.x = x
@@ -51,14 +51,20 @@ def test_lidar():
 
 if __name__ == '__main__':
     rospy.init_node("head_tester")
-    test_head(1.0, 0.0, 0.2)
+    test_head(-1.0, -1.0, 0.0)
     test_lidar()
-    x = 1.0
-    for i in range(-5,6):
-        y = float(i)
-        for j in range(-1,2):
-            z = float(j)
-            print "Testing head to [X,Y,Z]: [" + str(x) + "," + str(y) + "," + str(z) + "]"
-            test_head(x,y,z)
-            test_lidar()
+    test_head(-1.0, 0.0, 0.0)
+    test_lidar()
+    test_head(-1.0, 1.0, 0.0)
+    test_lidar()
+    exit()
+    for h in range(-1,2):
+        x = float(h)
+        for i in range(-5,6):
+            y = float(i)
+            for j in range(-1,2):
+                z = float(j)
+                print "Testing head to [X,Y,Z]: [" + str(x) + "," + str(y) + "," + str(z) + "]"
+                test_head(x,y,z)
+                test_lidar()
     print "Testing done"

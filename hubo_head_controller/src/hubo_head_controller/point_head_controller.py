@@ -37,6 +37,7 @@ class PointHeadController:
         self.safe_tilt_position = safe_tilt_position
         self.target_angular_rate = target_angular_rate
         self.error_threshold = error_threshold
+        self.valid_pointing_frames = {"Body_NK2":"Body_NK2", "trinocular_base_frame":"trinocular_base_frame", "trinocular_left_sensor_frame":"trinocular_left_sensor_frame", "trinocular_left_optical_frame":"trinocular_left_sensor_frame", "trinocular_center_sensor_frame":"trinocular_center_sensor_frame", "trinocular_center_optical_frame":"trinocular_center_sensor_frame", "trinocular_right_sensor_frame":"trinocular_right_sensor_frame", "trinocular_right_optical_frame":"trinocular_right_sensor_frame", "dual_rgbd_base_frame":"dual_rgbd_base_frame", "rgbd_shortrange_sensor_frame":"rgbd_shortrange_sensor_frame", "rgbd_shortrange_rgb_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_rgb_optical_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_depth_frame":"rgbd_shortrange_depth_frame", "rgbd_shortrange_depth_optical_frame":"rgbd_shortrange_depth_frame", "rgbd_longrange_sensor_frame":"rgbd_longrange_sensor_frame", "rgbd_longrange_rgb_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_rgb_optical_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_depth_frame":"rgbd_longrange_depth_frame", "rgbd_longrange_depth_optical_frame":"rgbd_longrange_depth_frame"}
         self.tf_listener = tf.TransformListener()
         self.running = True
         self.last_pan_state = None
@@ -116,48 +117,66 @@ class PointHeadController:
             rospy.logerr("PointHead specified using a physical frame but pointing axis is not X")
             return [None, None]
         real_pointing_frame = self.GetRealPointingFrame(point_head_goal.pointing_frame)
-        #try:
-        [tft, tfr] = self.tf_listener.lookupTransform(real_pointing_frame, point_head_goal.target.header.frame_id, rospy.Time())
-        target_frame_pose = PoseFromTransform(TransformFromComponents(tft,tfr))
-        target_pose = Pose()
-        target_pose.orientation.w = 1.0
-        target_pose.position.x = point_head_goal.target.point.x
-        target_pose.position.y = point_head_goal.target.point.y
-        target_pose.position.z = point_head_goal.target.point.z
-        pftp = ComposePoses(target_frame_pose, target_pose)
-        print "Computed pose of target point:"
-        print "X: " + str(pftp.position.x)
-        print "Y: " + str(pftp.position.y)
-        print "Z: " + str(pftp.position.z)
-        target_range = math.sqrt((pftp.position.x ** 2) + (pftp.position.y ** 2) + (pftp.position.z ** 2))
-        target_pan = math.atan2(pftp.position.y, pftp.position.x)
-        target_tilt = math.asin(pftp.position.z / target_range)
-        print "Computed pan/tilt adjustments:"
-        print "Pan change: " + str(target_pan)
-        print "Tilt change: " + str(target_tilt)
-        real_pan = self.last_pan_state.current_pos + target_pan
-        real_tilt = -(self.last_tilt_state.current_pos - target_tilt)
-        print "Computed pan/tilt targets:"
-        print "Pan: " + str(real_pan)
-        print "Tilt: " + str(real_tilt)
-        print "Current pan/tilt:"
-        print "Pan: " + str(self.last_pan_state.current_pos)
-        print "Tilt: " + str(self.last_tilt_state.current_pos)
-        return [real_pan, real_tilt]
-        #except:
-        #    rospy.logerr("Unable to compute pointing - this is probably because a frame doesn't exist")
-        #    return [None, None]
+        if (real_pointing_frame != None):
+            try:
+                [tft, tfr] = self.tf_listener.lookupTransform(real_pointing_frame, point_head_goal.target.header.frame_id, rospy.Time())
+                target_frame_pose = PoseFromTransform(TransformFromComponents(tft,tfr))
+                target_pose = Pose()
+                target_pose.orientation.w = 1.0
+                target_pose.position.x = point_head_goal.target.point.x
+                target_pose.position.y = point_head_goal.target.point.y
+                target_pose.position.z = point_head_goal.target.point.z
+                pftp = ComposePoses(target_frame_pose, target_pose)
+                print "Computed pose of target point:"
+                print "X: " + str(pftp.position.x)
+                print "Y: " + str(pftp.position.y)
+                print "Z: " + str(pftp.position.z)
+                target_range = math.sqrt((pftp.position.x ** 2) + (pftp.position.y ** 2) + (pftp.position.z ** 2))
+                target_pan = math.atan2(pftp.position.y, pftp.position.x)
+                target_tilt = -math.asin(pftp.position.z / target_range)
+                print "Computed pan/tilt adjustments:"
+                print "Pan change: " + str(target_pan)
+                print "Tilt change: " + str(target_tilt)
+                real_pan = self.normalize_pan(self.last_pan_state.current_pos + target_pan)
+                real_tilt = self.last_tilt_state.current_pos + target_tilt
+                print "Computed pan/tilt targets:"
+                print "Pan: " + str(real_pan)
+                print "Tilt: " + str(real_tilt)
+                print "Current pan/tilt:"
+                print "Pan: " + str(self.last_pan_state.current_pos)
+                print "Tilt: " + str(self.last_tilt_state.current_pos)
+                return [real_pan, real_tilt]
+            except:
+                rospy.logerr("Unable to compute pointing - this is probably because a frame doesn't exist")
+                return [None, None]
+        else:
+            rospy.logerr("Unable to resolve head pointing frame")
+            return [None, None]
+
+    def normalize_pan(self, raw_pan):
+        if (raw_pan > (math.pi + self.error_threshold)):
+            new_pan = -abs(raw_pan % math.pi)
+            return new_pan
+        elif (raw_pan < -(math.pi + self.error_threshold)):
+            new_pan = abs(raw_pan % math.pi)
+            return new_pan
+        else:
+            return raw_pan
 
     def GetRealPointingFrame(self, frame_name):
-        return "/Body_NK2"
+        frame_name = frame_name.lstrip("/")
+        try:
+            return self.valid_pointing_frames[frame_name]
+        except:
+            return None
 
     def CheckSafetyBounds(self, pan, tilt):
         if (pan == None or tilt == None):
             return False
         min_pan = -(math.pi + self.error_threshold)
         max_pan = (math.pi + self.error_threshold)
-        min_tilt = -0.6
-        max_tilt = 1.1
+        min_tilt = -1.1
+        max_tilt = math.pi / 4.0
         if (pan > max_pan or pan < min_pan):
             rospy.logerr("Pan value safety violation - requested " + str(pan))
             return False
@@ -188,12 +207,10 @@ class PointHeadController:
         steps_per_sec = 50.0
         steptime = 1.0 / steps_per_sec
         trajectory_states = []
-        start_quaternion = self.PanTiltToQuaternion(start_pan, start_tilt)
-        end_quaternion = self.PanTiltToQuaternion(end_pan, end_tilt)
-        angle = self.QuaternionDistance(start_quaternion, end_quaternion)
+        angle = self.compute_distance(start_pan, start_tilt, end_pan, end_tilt)
         nominal_time = angle / angular_rate
         if (execution_time != None):
-            if (execution_time / angle > angular_rate):
+            if ((execution_time / angle) > angular_rate):
                 rospy.logwarn("Desired execution time would require exceeding velocity bounds")
             else:
                 nominal_time = execution_time
@@ -210,15 +227,11 @@ class PointHeadController:
                 trajectory_states.append([pan, tilt, steptime])
             return trajectory_states
 
-    def PanTiltToQuaternion(self, pan, tilt):
-        pan = quaternion_about_axis(pan, (0,0,1))
-        tilt = quaternion_about_axis(tilt, (0,1,0))
-        return NormalizeQuaternion(ComposeQuaternions(pan, tilt))
-
-    def QuaternionDistance(self, q1, q2):
-        dot_product = (q1[0]* q2[0]) + (q1[1] * q2[1]) + (q1[2] * q2[2]) + (q1[3] * q2[3])
-        temp_value = 2 * (dot_product ** 2) - 1
-        return math.acos(temp_value)
+    def compute_distance(self, start_pan, start_tilt, end_pan, end_tilt):
+        pan_dist = abs(end_pan - start_pan)
+        tilt_dist = abs(end_tilt - start_tilt)
+        real_dist = math.sqrt((pan_dist ** 2) + (tilt_dist ** 2))
+        return real_dist
 
     def RunTrajectory(self, trajectory, debug=False):
         if (debug):
