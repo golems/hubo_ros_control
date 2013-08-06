@@ -209,6 +209,13 @@ void HuboMotionRtController::publish_loop()
     hubo_ctrl_state_t H_ctrl_state;
     memset(&H_ctrl_state, 0, sizeof(H_ctrl_state));
 
+    // Initialize time
+    int nb_loops = 0;
+    publish_average_periode_ = 0.0;
+    hubo_->update(true);
+    double t_last = hubo_->getTime();
+    double t_total = 0.0;
+
     // Loop until node shutdown
     while (ros::ok())
     {
@@ -278,10 +285,15 @@ void HuboMotionRtController::publish_loop()
 
         // Publish Time
         hubo_->update(true);
+        double t_cur = hubo_->getTime();
         rosgraph_msgs::Clock clockmsg;
-        clockmsg.clock = ros::Time( hubo_->getTime());
+        clockmsg.clock = ros::Time( t_cur );
         clock_pub_.publish( clockmsg );
-        //ROS_INFO("TIME is : %f sec", H_state.time );
+
+        // Compute average publishing periode
+        t_total += (t_cur - t_last); // add periode to total time
+        publish_average_periode_ = t_total / double(++nb_loops);
+        t_last = t_cur;
     }
 }
 
@@ -445,11 +457,15 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
     set_nominal_vel_and_acc();
 
-    const double dt_ = 0.005; // 200Hz
+    const double dt = 0.005; // 200Hz
     double t_start = get_time();
     double t_length = hubo_traj_.get_length();
-    double t = time_from_ref( t_start );
-    double t_end;
+    double t_cur = time_from_ref( t_start );
+    double t_end = 0.0;
+    double t_total= 0.0;
+    int nb_loops = 0;
+    int over_shoot = 0;
+    commands_average_periode_ = 0.0;
 
     for(int i=0; i<int(active_joints_.size()); i++)
     {
@@ -463,11 +479,11 @@ bool HuboMotionRtController::execute_linear_trajectory()
     else
         set_arms_compliance_on();
 
-    while( t <= t_length )
+    while( t_cur <= t_length )
     {
         // TODO implement a debugging tool (statistics on over shoot)
-        Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t );
-        Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t + dt_ );
+        Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t_cur );
+        Hubo::Vector q_t1 = hubo_traj_.get_config_at_time( t_cur + dt );
 
         error_.resize( HUBO_JOINT_COUNT, 0.0 );
 
@@ -484,14 +500,30 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
         hubo_->sendControls();
 
+        // Waits to attain user specified frequency
+        bool first_wait = true;
         do
         {
             t_end =  time_from_ref( t_start );
-        }
-        while( t_end - t <= ( dt_ - 1e-6 ) );
 
-        t = t_end;
+            if( first_wait && (( t_end - t_cur ) > ( dt - 1e-6 )) )
+                over_shoot++;
+
+            first_wait = false;
+        }
+        while( ( t_end - t_cur ) <= ( dt - 1e-6 ) );
+
+        // Computes average publishing periode
+        t_total += (t_cur - t_end); // add periode to total time
+        commands_average_periode_ = t_total / double(++nb_loops);
+        t_cur = t_end;
     }
+
+    ROS_INFO( "Nb of over shoots : %d", over_shoot );
+    ROS_INFO( "Command rate : %f sec, (%f Hz)", commands_average_periode_, double(1)/commands_average_periode_ );
+
+    double pub_average = publish_average_periode_;
+    ROS_INFO( "Publishing rate : %f sec, (%f Hz)", pub_average, double(1)/pub_average );
 
     hubo_traj_.clear();
     set_nominal_vel_and_acc();

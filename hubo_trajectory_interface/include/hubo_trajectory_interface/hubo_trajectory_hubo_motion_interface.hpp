@@ -100,6 +100,9 @@ protected:
     boost::thread* pub_thread_;
     boost::thread* traj_thread_;
 
+    double publish_average_periode_;
+    double commands_average_periode_;
+
     // Joint name and mapping storage
     std::vector<std::string> joint_names_;
     std::map<std::string,int> joint_mapping_;
