@@ -59,7 +59,7 @@ public:
 
     //! Given a string name of a joint, it looks it up in the list of joint names
     //! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
-    int index_lookup( const std::string& joint_name );
+    int ach_index_lookup( const std::string& joint_name );
 
     //! Callback when the ROS trajectory is received.
     //! Sets the compliance mode, proceeds to hubo-ach joint mapping,

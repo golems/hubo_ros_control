@@ -70,6 +70,8 @@ void stack_prefault(void) {
     memset( dummy, 0, MAX_SAFE_STACK );
 }
 
+static bool sim_mode = true;
+
 HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n), nhp_("~")
 {
     running_;
@@ -132,23 +134,25 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
     hubo_ = new Hubo_Control();
     ROS_INFO("Hubo_Control has started!!!!");
 
-    // RT
-    struct sched_param param;
-    // Declare ourself as a real time task
-    param.sched_priority = 49; // 49 is higest priority
-    if(sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
-        ROS_FATAL("sched_setscheduler failed");
-        exit(1);
-    }
+    if( !sim_mode )
+    {
+        // Declare ourself as a real time task
+        struct sched_param param;
+        param.sched_priority = 49; // 49 is higest priority
+        if(sched_setscheduler(0, SCHED_FIFO, &param) == -1) {
+            ROS_FATAL("sched_setscheduler failed");
+            exit(1);
+        }
 
-    // Lock memory
-    if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
-        ROS_FATAL("mlockall failed");
-        exit(-2);
-    }
+        // Lock memory
+        if(mlockall(MCL_CURRENT|MCL_FUTURE) == -1) {
+            ROS_FATAL("mlockall failed");
+            exit(1);
+        }
 
-    // Pre-fault our stack
-    stack_prefault();
+        // Pre-fault our stack
+        stack_prefault();
+    }
 
     // Sets up the thread for getting data from hubo and publishing it
     pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
@@ -249,7 +253,7 @@ void HuboMotionRtController::publish_loop()
     {
         clock_nanosleep(0,TIMER_ABSTIME,&t, NULL);
         
-	size_t fs;
+        size_t fs;
 
         // Get latest state from HUBO-MOTION (this is used to populate the desired values)
         ach_status_t r = ach_get( &chan_hubo_ctrl_state_pub_,  &H_ctrl_state, sizeof(H_ctrl_state), &fs, NULL, ACH_O_LAST );
@@ -265,14 +269,14 @@ void HuboMotionRtController::publish_loop()
             continue;
         }
 
-	cur_state.header.stamp = ros::Time::now();
+        cur_state.header.stamp = ros::Time::now();
 
         // Fill in the setpoint and actual & calc the error_ in the process
         for (size_t i=0; i<num_joints; i++)
         {
             // Fill in the setpoint and actual data
             // Values that we don't have data for are set to NAN
-            int hubo_index = index_lookup( cur_state.joint_names[i] );
+            int hubo_index = ach_index_lookup( cur_state.joint_names[i] );
             if (hubo_index >= 0)
             {
                 cur_setpoint.positions[i]       = H_ctrl_state.requested_pos[hubo_index];
@@ -296,37 +300,25 @@ void HuboMotionRtController::publish_loop()
         state_pub_.publish( cur_state );
 
         // Publish Time
-        double t_end;
-        //rosgraph_msgs::Clock clockmsg;
-        //clockmsg.clock = ros::Time( t_cur );
-        //clock_pub_.publish( clockmsg );
+        double t_end = get_time();
+        rosgraph_msgs::Clock clockmsg;
+        clockmsg.clock = ros::Time( t_end );
+        clock_pub_.publish( clockmsg );
 
-	t_end = get_time();
-	
         // Compute average publishing periode
         t_total += (t_end - t_last); // add periode to total time
         publish_average_periode_ = t_total / double(++nb_loops);
         t_last = t_end;
 
-	// Waits to attain user specified frequency
-	t.tv_nsec+=interval;
-	tsnorm(&t);
+        // Waits to attain user specified frequency
+        t.tv_nsec+=interval;
+        tsnorm(&t);
     }
-}
-
-//! compute t
-void HuboMotionRtController::tsnorm( struct timespec* t )
-{
-  // calculates the next shot
-   while (t->tv_nsec >= NSEC_PER_SEC) {
-       t->tv_nsec -= NSEC_PER_SEC;
-       t->tv_sec++;
-   }
 }
 
 //! Given a string name of a joint, it looks it up in the list of joint names
 //! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
-int HuboMotionRtController::index_lookup( const std::string& joint_name )
+int HuboMotionRtController::ach_index_lookup( const std::string& joint_name )
 {
     for ( int i=0; i<joint_names_.size(); i++ )
     {
@@ -396,7 +388,7 @@ void HuboMotionRtController::trajectory_cb( const hubo_robot_msgs::JointTrajecto
         // Now, overwrite with the commands in the current trajectory
         for ( size_t j=0; j<cur_point.positions.size(); j++)
         {
-            int index = index_lookup( ros_traj.joint_names[j] );
+            int index = ach_index_lookup( ros_traj.joint_names[j] );
             if (index != -1)
             {
                 q.second[index] = cur_point.positions[j];
@@ -412,17 +404,32 @@ void HuboMotionRtController::trajectory_cb( const hubo_robot_msgs::JointTrajecto
     ROS_INFO("Received a new trajectory with %ld elements", ros_traj.points.size());
 }
 
+//! compute t
+void HuboMotionRtController::tsnorm( struct timespec* t )
+{
+    // calculates the next shot
+    while (t->tv_nsec >= NSEC_PER_SEC) {
+        t->tv_nsec -= NSEC_PER_SEC;
+        t->tv_sec++;
+    }
+}
+
 //! Gets the current time from hubo-ach
 double HuboMotionRtController::get_time()
 {
-    // TODO implement a good simulation mode (test wether the call to ach is expesive)
-    // hubo_->update(true);
-    // double time = hubo_->getTime();
-    // return time;
-    timeval tim;
-    gettimeofday(&tim, NULL);
-    double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
-    return tu;
+    if( sim_mode )
+    {
+        hubo_->update(true);
+        double time = hubo_->getTime();
+        return time;
+    }
+    else
+    {
+        timeval tim;
+        gettimeofday(&tim, NULL);
+        double tu=tim.tv_sec+(tim.tv_usec/1000000.0);
+        return tu;
+    }
 }
 
 //! Gets the elapsed time from a reference time
@@ -434,12 +441,15 @@ double HuboMotionRtController::time_from_ref( const double& t_ref )
 //! Set joint compliance ON, the coefficient are defiended in the trajectory
 void HuboMotionRtController::set_arms_compliance_on()
 {
-    for( size_t i=0;compliant_joint_names_.size(); i++ )
+    for( size_t i=0;i<compliant_joint_names_.size(); i++ )
     {
-        int index = index_lookup( compliant_joint_names_[i] );
+        int index = ach_index_lookup( compliant_joint_names_[i] );
         if (index != -1)
         {
-            hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
+            hubo_->setJointCompliance( index, ON );
+//            hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
+//            cout << "compliance_kp_[" << i << "] : " << compliance_kp_[i] << endl;
+//            cout << "compliance_kd_[" << i << "] : " << compliance_kp_[i] << endl;
         }
     }
 }
@@ -523,8 +533,8 @@ bool HuboMotionRtController::execute_linear_trajectory()
         {
             int jnt = active_joints_[i];
 
-            // TODO test with smoothing (traj mode)
-            //hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
+            // TODO test with smoothing (traj mode) 50 Hz
+            // hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
             hubo_->passJointAngle( jnt, q_t0[jnt] );
 
             error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
@@ -532,16 +542,16 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
         hubo_->sendControls();
 
-	t_end = time_from_ref( t_start );
+        t_end = time_from_ref( t_start );
 
         // Computes average publishing periode
         t_total += (t_end - t_cur); // add periode to total time
         commands_average_periode_ = t_total / double(++nb_loops);
         t_cur = t_end;
 
-	// Waits to attain user specified frequency
-	t.tv_nsec+=interval;
-	tsnorm(&t);
+        // Waits to attain user specified frequency
+        t.tv_nsec+=interval;
+        tsnorm(&t);
     }
 
     ROS_INFO( "Total time : %f", t_total );
