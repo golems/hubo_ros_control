@@ -32,9 +32,9 @@
 // Boost includes
 #include <boost/thread.hpp>
 // Message and action includes for Hubo actions
-#include <trajectory_msgs/JointTrajectory.h>
+#include <hubo_robot_msgs/JointTrajectory.h>
 #include <hubo_robot_msgs/JointTrajectoryState.h>
-#include <trajectory_msgs/JointTrajectoryPoint.h>
+#include <hubo_robot_msgs/JointTrajectoryPoint.h>
 #include <rosgraph_msgs/Clock.h>
 // Includes for ACH and hubo-motion-rt
 #include <ach.h>
@@ -73,7 +73,7 @@ std::vector<std::string> g_joint_names;
 std::map<std::string,int> g_joint_mapping;
 
 // Trajectory storage
-std::vector< std::vector<trajectory_msgs::JointTrajectoryPoint> > g_trajectory_chunks;
+std::vector< std::vector<hubo_robot_msgs::JointTrajectoryPoint> > g_trajectory_chunks;
 int g_tid = 0;
 
 // Publisher and subscriber
@@ -165,7 +165,7 @@ void resetTrajectoryChannel()
  * the joint indices in the trajectory chunk match the indicies used by
  * inside hubo ach, and no further remapping is needed.
 */
-void sendTrajectory( const std::vector<trajectory_msgs::JointTrajectoryPoint>& processed_traj )
+void sendTrajectory( const std::vector<hubo_robot_msgs::JointTrajectoryPoint>& processed_traj )
 {
     if ( processed_traj.empty() )
     {
@@ -247,10 +247,10 @@ void sendTrajectory( const std::vector<trajectory_msgs::JointTrajectoryPoint>& p
  * necessary and we change the interface slightly as a result. A consequnce of this is than not all data
  * reported from this node is accurate, as it doesn't all exist in the first place!
  *************************************************************************************************************************/
-trajectory_msgs::JointTrajectoryPoint processPoint( const trajectory_msgs::JointTrajectoryPoint& raw, hubo_ctrl_state_t* cur_commands )
+hubo_robot_msgs::JointTrajectoryPoint processPoint( const hubo_robot_msgs::JointTrajectoryPoint& raw, hubo_ctrl_state_t* cur_commands )
 {
     //cout << "process point" << endl;
-    trajectory_msgs::JointTrajectoryPoint processed;
+    hubo_robot_msgs::JointTrajectoryPoint processed;
     processed.positions.resize(HUBO_JOINT_COUNT);
     processed.velocities.resize(HUBO_JOINT_COUNT);
     processed.accelerations.resize(HUBO_JOINT_COUNT);
@@ -303,9 +303,9 @@ trajectory_msgs::JointTrajectoryPoint processPoint( const trajectory_msgs::Joint
  *
  * Once a chunk has been reprocessed, it is removed from the stored list of chunks.
 */
-std::vector<trajectory_msgs::JointTrajectoryPoint> processTrajectory( hubo_ctrl_state_t* cur_commands )
+std::vector<hubo_robot_msgs::JointTrajectoryPoint> processTrajectory( hubo_ctrl_state_t* cur_commands )
 {
-    std::vector<trajectory_msgs::JointTrajectoryPoint> processed;
+    std::vector<hubo_robot_msgs::JointTrajectoryPoint> processed;
 
     if ( g_trajectory_chunks.empty() )
     {
@@ -314,11 +314,11 @@ std::vector<trajectory_msgs::JointTrajectoryPoint> processTrajectory( hubo_ctrl_
     else
     {
         // Grab the next chunk to execute
-        std::vector<trajectory_msgs::JointTrajectoryPoint> cur_set = g_trajectory_chunks[0];
+        std::vector<hubo_robot_msgs::JointTrajectoryPoint> cur_set = g_trajectory_chunks[0];
 
         for (size_t i=0; i<cur_set.size(); i++)
         {
-            const trajectory_msgs::JointTrajectoryPoint& processed_point = processPoint( cur_set[i], cur_commands );
+            const hubo_robot_msgs::JointTrajectoryPoint& processed_point = processPoint( cur_set[i], cur_commands );
             processed.push_back( processed_point );
         }
 
@@ -339,7 +339,7 @@ std::vector<trajectory_msgs::JointTrajectoryPoint> processTrajectory( hubo_ctrl_
  * of the previous chunk. Otherwise, as ROS trajectories are timed via absolute time
  * from start, the trajectory chunks would "drift into the future".
  */
-void trajectoryCB( const trajectory_msgs::JointTrajectory& traj )
+void trajectoryCB( const hubo_robot_msgs::JointTrajectory& traj )
 {
     //cout << "trajectoryCB : " << traj << endl;
     // Callback to chunk and save incoming trajectories
@@ -358,18 +358,18 @@ void trajectoryCB( const trajectory_msgs::JointTrajectory& traj )
     ROS_INFO("Reprocessing trajectory with %ld elements into chunks", traj.points.size());
 
     // First, chunk the trajectory into parts that can be sent over ACH channels to hubo-motion-rt
-    std::vector< std::vector<trajectory_msgs::JointTrajectoryPoint> > new_chunks;
+    std::vector< std::vector<hubo_robot_msgs::JointTrajectoryPoint> > new_chunks;
     unsigned int i = 0;
     ros::Duration base_time(0.0);
 
     while ( i < traj.points.size() )
     {
-        std::vector<trajectory_msgs::JointTrajectoryPoint> new_chunk;
+        std::vector<hubo_robot_msgs::JointTrajectoryPoint> new_chunk;
         unsigned int index = 0;
         while ( i < traj.points.size() && index < MAX_TRAJ_LENGTH )
         {
             // Make sure the JointTrajectoryPoint gets retimed to match its new trajectory chunk
-            trajectory_msgs::JointTrajectoryPoint cur_point = traj.points[i];
+            hubo_robot_msgs::JointTrajectoryPoint cur_point = traj.points[i];
 
             // Retime based on the end time of the previous trajectory chunk
             //cout << "cur_point.time_from_start : " << cur_point.time_from_start << endl;
@@ -461,9 +461,9 @@ void publishLoop()
         cur_state.joint_names = g_joint_names;
         unsigned int num_joints = cur_state.joint_names.size();
         // Make the empty states
-        trajectory_msgs::JointTrajectoryPoint cur_setpoint;
-        trajectory_msgs::JointTrajectoryPoint cur_actual;
-        trajectory_msgs::JointTrajectoryPoint cur_error;
+        hubo_robot_msgs::JointTrajectoryPoint cur_setpoint;
+        hubo_robot_msgs::JointTrajectoryPoint cur_actual;
+        hubo_robot_msgs::JointTrajectoryPoint cur_error;
         // Resize the states
         cur_setpoint.positions.resize(num_joints);
         cur_setpoint.velocities.resize(num_joints);
@@ -689,7 +689,7 @@ int main(int argc, char** argv)
             {
                 // cout << "processing trajectory" << endl;
                 // Reprocess the current trajectory chunk (this does nothing if we have nothing to send)
-                const std::vector<trajectory_msgs::JointTrajectoryPoint>& cleaned_trajectory = processTrajectory( &H_ctrl_state );
+                const std::vector<hubo_robot_msgs::JointTrajectoryPoint>& cleaned_trajectory = processTrajectory( &H_ctrl_state );
 
                 if ( !cleaned_trajectory.empty() )
                 {

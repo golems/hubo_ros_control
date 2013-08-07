@@ -14,7 +14,6 @@ import actionlib
 
 from std_msgs.msg import String
 from hubo_robot_msgs.msg import *
-from trajectory_msgs.msg import JointTrajectoryPoint
 
 from copy import deepcopy
 import sys
