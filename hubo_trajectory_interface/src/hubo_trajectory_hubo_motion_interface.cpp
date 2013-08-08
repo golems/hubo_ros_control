@@ -53,7 +53,7 @@ using std::endl;
  * may need to dynamically change based on the timings on the incoming trajectory.
 */
 
-static bool sim_mode = true;
+static bool sim_mode = false;
 
 // Timing info
 #define NSEC_PER_SEC    1000000000
@@ -156,11 +156,10 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
 
         // Pre-fault our stack
         stack_prefault();
+    
+	// Sets up clock publisher // TODO see with Calder
+	clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
     }
-
-    // Sets up clock publisher // TODO see with Calder
-    clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
-
     // Sets up the thread for getting data from hubo and publishing it
     pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
 
@@ -307,11 +306,13 @@ void HuboMotionRtController::publish_loop()
 
         // Publish Time
         double t_end = get_time();
-
+	
+	if(sim_mode)
+	  {
         rosgraph_msgs::Clock clockmsg;
         clockmsg.clock = ros::Time( t_end );
         clock_pub_.publish( clockmsg );
-
+	  }
         // Compute average publishing periode
         t_total += (t_end - t_last); // add periode to total time
         publish_average_periode_ = t_total / double(++nb_loops);
