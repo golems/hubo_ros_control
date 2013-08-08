@@ -254,6 +254,8 @@ if __name__ == "__main__":
             joint_names[i] = joint_names[i].strip( '/' )
             joint_mapping[ joint_names[i] ] = int(i)
 
+        print joint_mapping
+
         # Loads and executes the trajectory
         reader = TrajectoryReader( robot_name, frequency, joint_names, joint_mapping )
 
