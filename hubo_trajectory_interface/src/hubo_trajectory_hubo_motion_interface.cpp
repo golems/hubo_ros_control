@@ -156,10 +156,8 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
 
         // Pre-fault our stack
         stack_prefault();
-    
-	// Sets up clock publisher // TODO see with Calder
-	clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
     }
+
     // Sets up the thread for getting data from hubo and publishing it
     pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
 
@@ -307,12 +305,6 @@ void HuboMotionRtController::publish_loop()
         // Publish Time
         double t_end = get_time();
 	
-	if(sim_mode)
-	  {
-        rosgraph_msgs::Clock clockmsg;
-        clockmsg.clock = ros::Time( t_end );
-        clock_pub_.publish( clockmsg );
-	  }
         // Compute average publishing periode
         t_total += (t_end - t_last); // add periode to total time
         publish_average_periode_ = t_total / double(++nb_loops);
@@ -546,7 +538,7 @@ bool HuboMotionRtController::execute_linear_trajectory()
             int jnt = active_joints_[i];
 
             // TODO test with smoothing (traj mode) 50 Hz
-            hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
+            hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt, false );
             //hubo_->passJointAngle( jnt, q_t0[jnt] );
 
             error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
