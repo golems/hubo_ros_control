@@ -55,7 +55,7 @@ using std::cout;
 using std::endl;
 
 const double DEFAULT_GOAL_THRESHOLD = 0.1;
-const double COEF_SIM_TIME = 1; // Set this for faster communication in simulation
+const double COEF_SIM_TIME = 20; // 1 in normal mode Set this for faster communication in simulation
 
 class HuboJointTrajectoryServer
 {

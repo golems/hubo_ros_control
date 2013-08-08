@@ -34,7 +34,7 @@
 // Message and action includes for Hubo actions
 #include <hubo_robot_msgs/JointTrajectory.h>
 #include <hubo_robot_msgs/JointTrajectoryState.h>
-#include <trajectory_msgs/JointTrajectoryPoint.h>
+#include <hubo_robot_msgs/JointTrajectoryPoint.h>
 #include <hubo_robot_msgs/ComplianceConfig.h>
 #include <rosgraph_msgs/Clock.h>
 // Includes for ACH and hubo-motion-rt

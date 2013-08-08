@@ -53,27 +53,34 @@ using std::endl;
  * may need to dynamically change based on the timings on the incoming trajectory.
 */
 
+static bool sim_mode = true;
+
 // Timing info
 #define NSEC_PER_SEC    1000000000
 
-#define MAX_TRAJ_LENGTH 10 //Number of points in each trajectory chunk
-static double SPIN_RATE = 3.0; // Rate in hertz at which to send trajectory chunks
+double COEF_SIM_TIME = 1; // 1 for normal mode
 
-#define MAX_SAFE_STACK (1024*1024) /* The maximum stack size which is
-    guaranteed safe to access without
-    faulting */
+double SPIN_RATE = 3.0; // Rate in hertz at which to send trajectory chunks
 
-static int interval = 5000000; // 200 hz (0.005 sec)
+// static int interval = 5000000; // 200 hz (0.005 sec)
+static int interval = 20000000; // 50 hz (0.02 sec)
+
+#define MAX_SAFE_STACK (1024*1024)
+// The maximum stack size which is
+// guaranteed safe to access without faulting
 
 void stack_prefault(void) {
     unsigned char dummy[MAX_SAFE_STACK];
     memset( dummy, 0, MAX_SAFE_STACK );
 }
 
-static bool sim_mode = true;
-
 HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n), nhp_("~")
 {
+    if( sim_mode )
+    {
+        COEF_SIM_TIME = 20;
+        SPIN_RATE *= COEF_SIM_TIME;
+    }
     running_;
     hubo_=NULL;
 
@@ -120,9 +127,6 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
     std::string pub_path = node_.getNamespace() + "/state";
     state_pub_ = node_.advertise<hubo_robot_msgs::JointTrajectoryState>(pub_path, 1);
 
-    // Sets up clock publisher
-    //clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
-
     // Sets up the trajectory subscriber
     std::string sub_path = node_.getNamespace() + "/command";
     traj_sub_ = node_.subscribe( sub_path, 1, &HuboMotionRtController::trajectory_cb, this );
@@ -153,6 +157,9 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
         // Pre-fault our stack
         stack_prefault();
     }
+
+    // Sets up clock publisher // TODO see with Calder
+    clock_pub_ = node_.advertise<rosgraph_msgs::Clock>("/clock", 1);
 
     // Sets up the thread for getting data from hubo and publishing it
     pub_thread_ = new boost::thread( &HuboMotionRtController::publish_loop, this );
@@ -223,7 +230,6 @@ void HuboMotionRtController::publish_loop()
     publish_average_periode_ = 0.0;
     double t_last = get_time();
     double t_total = 0.0;
-    const double dt = 0.005; // 200Hz
 
     struct timespec t;
     clock_gettime( 0,&t);
@@ -234,9 +240,9 @@ void HuboMotionRtController::publish_loop()
     cur_state.joint_names = joint_names_;
     size_t num_joints = cur_state.joint_names.size();
     // Make the empty states
-    trajectory_msgs::JointTrajectoryPoint cur_setpoint;
-    trajectory_msgs::JointTrajectoryPoint cur_actual;
-    trajectory_msgs::JointTrajectoryPoint cur_error;
+    hubo_robot_msgs::JointTrajectoryPoint cur_setpoint;
+    hubo_robot_msgs::JointTrajectoryPoint cur_actual;
+    hubo_robot_msgs::JointTrajectoryPoint cur_error;
     // Resize the states
     cur_setpoint.positions.resize(num_joints);
     cur_setpoint.velocities.resize(num_joints);
@@ -301,6 +307,7 @@ void HuboMotionRtController::publish_loop()
 
         // Publish Time
         double t_end = get_time();
+
         rosgraph_msgs::Clock clockmsg;
         clockmsg.clock = ros::Time( t_end );
         clock_pub_.publish( clockmsg );
@@ -370,7 +377,7 @@ void HuboMotionRtController::trajectory_cb( const hubo_robot_msgs::JointTrajecto
     for ( size_t i=0; i<ros_traj.points.size();i++ )
     {
         // Make sure the JointTrajectoryPoint gets retimed to match its new trajectory chunk
-        trajectory_msgs::JointTrajectoryPoint cur_point = ros_traj.points[i];
+        hubo_robot_msgs::JointTrajectoryPoint cur_point = ros_traj.points[i];
 
         // Retiming based on the receiving times
         cur_point.time_from_start = cur_point.time_from_start - base_time;
@@ -421,6 +428,7 @@ double HuboMotionRtController::get_time()
     {
         hubo_->update(true);
         double time = hubo_->getTime();
+//        cout << "time : " << time << endl;
         return time;
     }
     else
@@ -446,10 +454,10 @@ void HuboMotionRtController::set_arms_compliance_on()
         int index = ach_index_lookup( compliant_joint_names_[i] );
         if (index != -1)
         {
-            hubo_->setJointCompliance( index, ON );
-//            hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
-//            cout << "compliance_kp_[" << i << "] : " << compliance_kp_[i] << endl;
-//            cout << "compliance_kd_[" << i << "] : " << compliance_kp_[i] << endl;
+            //hubo_->setJointCompliance( index, ON );
+            //            hubo_->setJointCompliance( index, ON, compliance_kp_[i], compliance_kd_[i] );
+            //            cout << "compliance_kp_[" << i << "] : " << compliance_kp_[i] << endl;
+            //            cout << "compliance_kd_[" << i << "] : " << compliance_kp_[i] << endl;
         }
     }
 }
@@ -457,8 +465,8 @@ void HuboMotionRtController::set_arms_compliance_on()
 //! Set arms compliance OFF
 void HuboMotionRtController::set_arms_compliance_off()
 {
-    hubo_->setArmCompliance( RIGHT, OFF );
-    hubo_->setArmCompliance( LEFT,  OFF );
+    //hubo_->setArmCompliance( RIGHT, OFF );
+    //hubo_->setArmCompliance( LEFT,  OFF );
 }
 
 //! Set nominal velocity
@@ -494,7 +502,9 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
     set_nominal_vel_and_acc();
 
-    const double dt = 0.005; // 200Hz
+//    const double dt = 0.005; // 200Hz
+//    const double dt = 0.02; // 50Hz
+    const double dt = double(interval) * 1e-9; // 50Hz
     double t_start = get_time();
     double t_length = hubo_traj_.get_length();
     double t_cur = time_from_ref( t_start );
@@ -521,7 +531,8 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
     while( t_cur <= t_length )
     {
-        clock_nanosleep(0,TIMER_ABSTIME,&t, NULL);
+        if( !sim_mode )
+            clock_nanosleep(0,TIMER_ABSTIME,&t, NULL);
 
         // TODO implement a debugging tool (statistics on over shoot)
         Hubo::Vector q_t0 = hubo_traj_.get_config_at_time( t_cur );
@@ -534,8 +545,8 @@ bool HuboMotionRtController::execute_linear_trajectory()
             int jnt = active_joints_[i];
 
             // TODO test with smoothing (traj mode) 50 Hz
-            // hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
-            hubo_->passJointAngle( jnt, q_t0[jnt] );
+            hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt );
+            //hubo_->passJointAngle( jnt, q_t0[jnt] );
 
             error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
         }
@@ -544,14 +555,26 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
         t_end = time_from_ref( t_start );
 
+        if( sim_mode )
+        {
+            while( (t_end - t_cur) <= dt )
+            {
+                t_end = time_from_ref( t_start );
+                usleep(100);
+            }
+        }
+
         // Computes average publishing periode
         t_total += (t_end - t_cur); // add periode to total time
         commands_average_periode_ = t_total / double(++nb_loops);
         t_cur = t_end;
 
-        // Waits to attain user specified frequency
-        t.tv_nsec+=interval;
-        tsnorm(&t);
+        if( !sim_mode )
+        {
+            // Waits to attain user specified frequency
+            t.tv_nsec+=interval;
+            tsnorm(&t);
+        }
     }
 
     ROS_INFO( "Total time : %f", t_total );
