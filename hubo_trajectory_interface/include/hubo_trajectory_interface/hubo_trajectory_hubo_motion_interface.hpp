@@ -61,6 +61,12 @@ public:
     //! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
     int ach_index_lookup( const std::string& joint_name );
 
+    //! Sets the ach finger joints ids
+    void set_ach_finger_joints_ids();
+
+    //! Returns true if joint id is finger
+    bool is_ach_finger_joints_id(int jnt);
+
     //! Callback when the ROS trajectory is received.
     //! Sets the compliance mode, proceeds to hubo-ach joint mapping,
     virtual void trajectory_cb( const hubo_robot_msgs::JointTrajectory& ros_traj );
@@ -110,7 +116,7 @@ protected:
     // Joint name and mapping storage
     std::vector<std::string> joint_names_;
     std::map<std::string,int> joint_mapping_;
-
+    std::vector<int> finger_joints_;
     std::vector<int> all_joints_;
     std::vector<int> active_joints_;
     std::vector<double> error_;

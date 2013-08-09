@@ -76,8 +76,11 @@ void stack_prefault(void) {
 
 HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n), nhp_("~")
 {
+    //Get simulation flag
+    nhp_.param( "/use_sim_time", sim_mode, false );
     if( sim_mode )
     {
+        ROS_INFO("Using simulation mode");
         COEF_SIM_TIME = 20;
         SPIN_RATE *= COEF_SIM_TIME;
     }
@@ -121,7 +124,16 @@ HuboMotionRtController::HuboMotionRtController( ros::NodeHandle &n ) : node_(n),
         all_joints_.push_back( h );
         //ROS_INFO( "joint_names_[%d] : %s\n", i, joint_names_[i].c_str() );
     }
-    active_joints_ = all_joints_;
+
+    // Stores the ach finger joint ids
+    set_ach_finger_joints_ids();
+
+    // Stores the active joints
+    for( size_t i=0;i<all_joints_.size();i++)
+    {
+        if( !is_ach_finger_joints_id( all_joints_[i] ) )
+            active_joints_.push_back( all_joints_[i] );
+    }
 
     // Sets up state publisher
     std::string pub_path = node_.getNamespace() + "/state";
@@ -304,6 +316,7 @@ void HuboMotionRtController::publish_loop()
 
         // Publish Time
         double t_end = get_time();
+        //ROS_INFO("Time : %f",t_end);
 	
         // Compute average publishing periode
         t_total += (t_end - t_last); // add periode to total time
@@ -320,7 +333,7 @@ void HuboMotionRtController::publish_loop()
 //! to determine the joint index used in hubo-ach. If the name can't be found, it returns -1.
 int HuboMotionRtController::ach_index_lookup( const std::string& joint_name )
 {
-    for ( int i=0; i<joint_names_.size(); i++ )
+    for ( size_t i=0; i<joint_names_.size(); i++ )
     {
         if( joint_names_[i] == joint_name )
         {
@@ -328,6 +341,32 @@ int HuboMotionRtController::ach_index_lookup( const std::string& joint_name )
         }
     }
     return -1;
+}
+
+//! Sets the ach finger joints
+//! Remove them from the active set
+//! Warning hard coded joint names (better that joint ids...)
+void HuboMotionRtController::set_ach_finger_joints_ids()
+{
+    finger_joints_.clear();
+    finger_joints_.push_back( ach_index_lookup( "RF1" ) );
+    finger_joints_.push_back( ach_index_lookup( "RF2" ) );
+    finger_joints_.push_back( ach_index_lookup( "LF1" ) );
+
+    ROS_INFO("set finger joints (%d)",int(finger_joints_.size()));
+}
+
+//! Returns true if it is a finger joint
+bool HuboMotionRtController::is_ach_finger_joints_id(int jnt)
+{
+    for ( size_t i=0; i<finger_joints_.size(); i++ )
+    {
+        if( jnt == finger_joints_[i] )
+        {
+            return true;
+        }
+    }
+    return false;
 }
 
 //! Callback when the ROS trajectory is received.
@@ -533,15 +572,22 @@ bool HuboMotionRtController::execute_linear_trajectory()
 
         error_.resize( HUBO_JOINT_COUNT, 0.0 );
 
-        for(int i=0; i<int(active_joints_.size()); i++)
+        // Treat body joints
+        for(size_t i=0; i<int(active_joints_.size()); i++)
         {
             int jnt = active_joints_[i];
 
             // TODO test with smoothing (traj mode) 50 Hz
             hubo_->setJointTraj( jnt, q_t0[jnt], (q_t1[jnt]-q_t0[jnt])/dt, false );
-            //hubo_->passJointAngle( jnt, q_t0[jnt] );
 
             error_[jnt] = q_t0[jnt] - hubo_->getJointAngleState( jnt );
+        }
+
+        // Treat finger joints
+        for(size_t i=0; i<int(finger_joints_.size()); i++)
+        {
+            int jnt = finger_joints_[i];
+            hubo_->passJointAngle( jnt, q_t0[jnt] );
         }
 
         hubo_->sendControls();
