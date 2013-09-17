@@ -38,7 +38,7 @@
 #include <hubo_robot_msgs/ComplianceConfig.h>
 #include <rosgraph_msgs/Clock.h>
 // Includes for ACH and hubo-motion-rt
-#include <hubo_components/hubo_components/Hubo_Control.h>
+#include <Hubo_Control.h>
 // Trajectory structure
 #include <hubo_trajectory_interface/hubo_trajectory.hpp>
 // Boost includes
