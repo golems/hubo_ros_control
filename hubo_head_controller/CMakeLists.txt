@@ -4,7 +4,7 @@ project(hubo_head_controller)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs geometry_msgs hubo_components hubo_robot_msgs hubo_sensor_msgs laser_geometry message_generation roscpp sensor_msgs std_msgs tf dynamixel_msgs)
+find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs geometry_msgs hubo_robot_msgs hubo_sensor_msgs laser_geometry message_generation roscpp sensor_msgs std_msgs tf dynamixel_msgs)
 
 ## System dependencies are found with CMake's conventions
 # find_package(Boost REQUIRED COMPONENTS system)
@@ -57,7 +57,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES hubo_head_controller
-  CATKIN_DEPENDS actionlib actionlib_msgs geometry_msgs hubo_components hubo_robot_msgs hubo_sensor_msgs laser_geometry message_runtime roscpp rospy sensor_msgs std_msgs tf dynamixel_msgs
+  CATKIN_DEPENDS actionlib actionlib_msgs geometry_msgs hubo_robot_msgs hubo_sensor_msgs laser_geometry message_runtime roscpp rospy sensor_msgs std_msgs tf dynamixel_msgs
   DEPENDS system_lib
 )
 
