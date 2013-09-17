@@ -13,7 +13,6 @@
   <build_depend>actionlib</build_depend>
   <build_depend>actionlib_msgs</build_depend>
   <build_depend>geometry_msgs</build_depend>
-  <build_depend>hubo_components</build_depend>
   <build_depend>hubo_robot_msgs</build_depend>
   <build_depend>hubo_sensor_msgs</build_depend>
   <build_depend>laser_geometry</build_depend>
@@ -28,7 +27,6 @@
   <run_depend>actionlib</run_depend>
   <run_depend>actionlib_msgs</run_depend>
   <run_depend>geometry_msgs</run_depend>
-  <run_depend>hubo_components</run_depend>
   <run_depend>hubo_robot_msgs</run_depend>
   <run_depend>hubo_sensor_msgs</run_depend>
   <run_depend>laser_geometry</run_depend>
