@@ -1,4 +1,3 @@
-
 /*
  * Copyright (c) 2013, Calder Phillips-Grafflin (WPI) and M.X. Grey (Georgia Tech), Drexel DARPA Robotics Challenge team
  * All rights reserved.
@@ -38,8 +37,8 @@
 #include <trajectory_msgs/JointTrajectoryPoint.h>
 // Includes for ACH and hubo-motion-rt
 #include <ach.h>
-#include "hubo_components/hubo.h"
-#include "hubo_components/motion-trajectory.h"
+#include "hubo.h"
+#include "motion-trajectory.h"
 
 // ACH channels
 ach_channel_t chan_traj_cmd;
