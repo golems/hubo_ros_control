@@ -4,7 +4,7 @@ project(hubo_trajectory_interface)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs hubo_robot_msgs hubo_components hubo_components roscpp rospy trajectory_msgs)
+find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs hubo_robot_msgs roscpp rospy trajectory_msgs message_generation)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS thread)
@@ -52,7 +52,7 @@ generate_messages(
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES hubo_trajectory_interface
-  CATKIN_DEPENDS actionlib actionlib_msgs hubo_robot_msgs roscpp rospy trajectory_msgs hubo_components hubo_components
+  CATKIN_DEPENDS actionlib actionlib_msgs hubo_robot_msgs roscpp rospy trajectory_msgs message_runtime
   DEPENDS system_lib
 )
 
