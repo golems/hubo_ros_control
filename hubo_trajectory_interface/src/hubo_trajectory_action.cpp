@@ -72,7 +72,6 @@ private:
     bool has_active_goal_;
     HTGH active_goal_;
     hubo_robot_msgs::JointTrajectory current_traj_;
-    ros::Time last_traj_stamp_;
     std::vector<std::string> joint_names_;
     std::map<std::string,double> goal_constraints_;
     std::map<std::string,double> trajectory_constraints_;
@@ -153,15 +152,6 @@ private:
     void goalCB(HTGH gh)
     {
         ROS_INFO("Trajectory goal received");
-        // Make sure the goal is in the future (if it starts in the past, it could be older than a newer goal that got here first)
-        ros::Time now = ros::Time::now();
-
-        if (!(gh.getGoal()->trajectory.header.stamp > last_traj_stamp_))
-        {
-            ROS_ERROR("Goal timing in the past");
-            gh.setRejected();
-            return;
-        }
         // Ensures that the joints in the goal match the joints we are commanding (fail if they don't)
         if (!setsEqual(joint_names_, gh.getGoal()->trajectory.joint_names))
         {
@@ -184,7 +174,6 @@ private:
         gh.setAccepted();
         active_goal_ = gh;
         has_active_goal_ = true;
-        last_traj_stamp_ = gh.getGoal()->trajectory.header.stamp;
         // Sends the trajectory along to the controller
         current_traj_ = active_goal_.getGoal()->trajectory;
         ROS_INFO("Sending goal trajectory to the execution backend");
