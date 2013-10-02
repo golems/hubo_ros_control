@@ -78,7 +78,7 @@ add_dependencies(hubo_trajectory_compromise_interface ${catkin_EXPORTED_TARGETS}
 
 # WARNING Needs hubo-motion-rt installed
 add_executable(hubo_trajectory_hubo_motion_interface src/hubo_trajectory_hubo_motion_interface.cpp src/hubo_trajectory.cpp)
-target_link_libraries(hubo_trajectory_hubo_motion_interface ${catkin_LIBRARIES} huboctrl daemonizer ach)
+target_link_libraries(hubo_trajectory_hubo_motion_interface ${catkin_LIBRARIES} huboctrl daemonizer ach rt)
 add_dependencies(hubo_trajectory_hubo_motion_interface ${catkin_EXPORTED_TARGETS})
 
 #############
