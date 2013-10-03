@@ -152,16 +152,6 @@ private:
     void goalCB(HTGH gh)
     {
         ROS_INFO("Trajectory goal received");
-        // Make sure the goal is in the future (if it starts in the past, it could be older than a newer goal that got here first)
-        ros::Time now = ros::Time::now();
-
-        if (gh.getGoal()->trajectory.points.size() > 0 && 
-            now > (gh.getGoal()->trajectory.header.stamp + gh.getGoal()->trajectory.points[0].time_from_start))
-        {
-            ROS_ERROR("Goal timing in the past");
-            gh.setRejected();
-            return;
-        }
         // Ensures that the joints in the goal match the joints we are commanding (fail if they don't)
         if (!setsEqual(joint_names_, gh.getGoal()->trajectory.joint_names))
         {
