@@ -34,12 +34,12 @@ find_package(Boost REQUIRED COMPONENTS thread)
 # )
 
 ## Generate added messages and services with any dependencies listed here
-generate_messages(
-  DEPENDENCIES
-  actionlib_msgs
-  hubo_robot_msgs
-  trajectory_msgs
-)
+#generate_messages(
+#  DEPENDENCIES
+#  actionlib_msgs
+#  hubo_robot_msgs
+#  trajectory_msgs
+#)
 
 ###################################
 ## catkin specific configuration ##
