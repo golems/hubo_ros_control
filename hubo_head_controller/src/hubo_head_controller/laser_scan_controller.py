@@ -27,7 +27,7 @@ import dynamixel_msgs.msg as dmms
 
 class LaserScanController:
 
-    def __init__(self, tilt_controller_prefix, zero_tilt_position, max_tilt_position, min_tilt_position, laser_topic, target_angular_rate, error_threshold):
+    def __init__(self, tilt_controller_prefix, zero_tilt_position, max_tilt_position, min_tilt_position, laser_topic, laser_aggregation_service, target_angular_rate, error_threshold):
         self.zero_tilt_position = zero_tilt_position
         self.max_tilt_position = max_tilt_position
         self.min_tilt_position = min_tilt_position
@@ -38,6 +38,10 @@ class LaserScanController:
         self.laser_scans = []
         self.last_tilt_state = None
         rospy.loginfo("Configuring LaserScanController...")
+        rospy.loginfo("Setting up LIDAR scan aggregator...")
+        self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsms.LaserAggregation)
+        self.scan_processor.wait_for_server()
+        rospy.loginfo("...connected to scan aggregator")
         rospy.loginfo("tilt_controller_prefix = " + tilt_controller_prefix)
         rospy.loginfo("laser_topic = " + laser_topic)
         self.tilt_subscriber = rospy.Subscriber(tilt_controller_prefix + "/state", dmms.JointState, self.tilt_state_cb)
@@ -126,10 +130,21 @@ class LaserScanController:
                 self.server.set_aborted()
             self.active = False
             print "Scan action recorded " + str(len(self.laser_scans)) + " scans during the scan process"
+            request = hsms.LaserAggregationRequest()
+            request.Scans = self.laser_scans
+            response = None
+            try:
+                response = self.scan_processor.call(request)
+            except:
+                rospy.logerr("Failed to process LIDAR scans to pointcloud")
+                self.server.set_aborted()
             result = self.RunTrajectory(post_traj)
             if (result):
                 rospy.loginfo("LaserScanAction post completed")
-                self.server.set_succeeded()
+                if (response != None):
+                    action_response = hsms.LaserScanResult()
+                    action_response.scan = response
+                    self.server.set_succeeded(action_response)
             else:
                 rospy.logerr("Unable to complete LaserScanAction")
                 self.server.set_aborted()
@@ -188,7 +203,8 @@ if __name__ == '__main__':
     target_angular_rate = rospy.get_param("~target_angular_rate", (math.pi / 4.0))
     error_threshold = rospy.get_param("~error_threshold", (math.pi / 36.0))
     laser_topic = rospy.get_param("~laser_topic", "laser_scan")
-    LSC = LaserScanController(tilt_controller_prefix, zero_tilt_position, max_tilt_position, min_tilt_position, laser_topic, target_angular_rate, error_threshold)
+    laser_aggregation_service = rospy.get_param("~laser_aggregation_service", "laser_aggregation")
+    LSC = LaserScanController(tilt_controller_prefix, zero_tilt_position, max_tilt_position, min_tilt_position, laser_topic, laser_aggregation_service, target_angular_rate, error_threshold)
     retry_rate = rospy.Rate(1.0)
     result = False
     while not result and not rospy.is_shutdown():
