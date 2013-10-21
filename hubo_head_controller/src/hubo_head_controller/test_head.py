@@ -51,7 +51,8 @@ def test_lidar():
 
 if __name__ == '__main__':
     rospy.init_node("head_tester")
-    test_head(-1.0, -1.0, 0.0)
+    test_head(-1.0, 0.0, 1.0)
+    exit()
     test_lidar()
     test_head(-1.0, 0.0, 0.0)
     test_lidar()
