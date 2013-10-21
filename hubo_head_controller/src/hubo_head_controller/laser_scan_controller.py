@@ -41,7 +41,7 @@ class LaserScanController:
         rospy.loginfo("Configuring LaserScanController...")
         rospy.loginfo("Setting up LIDAR scan aggregator...")
         self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsss.LidarAggregation)
-        self.scan_processor.wait_for_server()
+        self.scan_processor.wait_for_service()
         rospy.loginfo("...connected to scan aggregator")
         rospy.loginfo("tilt_controller_prefix = " + tilt_controller_prefix)
         rospy.loginfo("laser_topic = " + laser_topic)
