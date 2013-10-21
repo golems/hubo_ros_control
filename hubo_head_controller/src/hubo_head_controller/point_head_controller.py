@@ -147,7 +147,7 @@ class PointHeadController:
                 print "Tilt: " + str(self.last_tilt_state.current_pos)
                 return [real_pan, real_tilt]
             except:
-                print "Exception occured trying to compute pointing: ", sys.exc_ifo()
+                print "Exception occured trying to compute pointing: ", sys.exc_info()
                 rospy.logerr("Unable to compute pointing - this is probably because a frame doesn't exist")
                 return [None, None]
         else:
