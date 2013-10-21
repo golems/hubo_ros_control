@@ -40,7 +40,7 @@ class LaserScanController:
         self.last_tilt_state = None
         rospy.loginfo("Configuring LaserScanController...")
         rospy.loginfo("Setting up LIDAR scan aggregator...")
-        self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsss.LaserAggregation)
+        self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsss.LidarAggregation)
         self.scan_processor.wait_for_server()
         rospy.loginfo("...connected to scan aggregator")
         rospy.loginfo("tilt_controller_prefix = " + tilt_controller_prefix)
@@ -131,7 +131,7 @@ class LaserScanController:
                 self.server.set_aborted()
             self.active = False
             print "Scan action recorded " + str(len(self.laser_scans)) + " scans during the scan process"
-            request = hsss.LaserAggregationRequest()
+            request = hsss.LidarAggregationRequest()
             request.Scans = self.laser_scans
             response = None
             try:
