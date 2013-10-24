@@ -23,6 +23,7 @@ import actionlib
 from geometry_msgs.msg import *
 import hubo_robot_msgs.msg as hrms
 import hubo_sensor_msgs.msg as hsms
+import hubo_sensor_msgs.srv as hsss
 import dynamixel_msgs.msg as dmms
 
 class LaserScanController:
@@ -39,8 +40,8 @@ class LaserScanController:
         self.last_tilt_state = None
         rospy.loginfo("Configuring LaserScanController...")
         rospy.loginfo("Setting up LIDAR scan aggregator...")
-        self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsms.LaserAggregation)
-        self.scan_processor.wait_for_server()
+        self.scan_processor = rospy.ServiceProxy(laser_aggregation_service, hsss.LidarAggregation)
+        self.scan_processor.wait_for_service()
         rospy.loginfo("...connected to scan aggregator")
         rospy.loginfo("tilt_controller_prefix = " + tilt_controller_prefix)
         rospy.loginfo("laser_topic = " + laser_topic)
@@ -130,7 +131,7 @@ class LaserScanController:
                 self.server.set_aborted()
             self.active = False
             print "Scan action recorded " + str(len(self.laser_scans)) + " scans during the scan process"
-            request = hsms.LaserAggregationRequest()
+            request = hsss.LidarAggregationRequest()
             request.Scans = self.laser_scans
             response = None
             try:

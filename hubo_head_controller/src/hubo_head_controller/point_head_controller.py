@@ -37,7 +37,7 @@ class PointHeadController:
         self.safe_tilt_position = safe_tilt_position
         self.target_angular_rate = target_angular_rate
         self.error_threshold = error_threshold
-        self.valid_pointing_frames = {"Body_NK2":"Body_NK2", "trinocular_base_frame":"trinocular_base_frame", "trinocular_left_sensor_frame":"trinocular_left_sensor_frame", "trinocular_left_optical_frame":"trinocular_left_sensor_frame", "trinocular_center_sensor_frame":"trinocular_center_sensor_frame", "trinocular_center_optical_frame":"trinocular_center_sensor_frame", "trinocular_right_sensor_frame":"trinocular_right_sensor_frame", "trinocular_right_optical_frame":"trinocular_right_sensor_frame", "dual_rgbd_base_frame":"dual_rgbd_base_frame", "rgbd_shortrange_sensor_frame":"rgbd_shortrange_sensor_frame", "rgbd_shortrange_rgb_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_rgb_optical_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_depth_frame":"rgbd_shortrange_depth_frame", "rgbd_shortrange_depth_optical_frame":"rgbd_shortrange_depth_frame", "rgbd_longrange_sensor_frame":"rgbd_longrange_sensor_frame", "rgbd_longrange_rgb_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_rgb_optical_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_depth_frame":"rgbd_longrange_depth_frame", "rgbd_longrange_depth_optical_frame":"rgbd_longrange_depth_frame"}
+        self.valid_pointing_frames = {"Body_NK1":"Body_NK1", "trinocular_base_frame":"trinocular_base_frame", "trinocular_left_sensor_frame":"trinocular_left_sensor_frame", "trinocular_left_optical_frame":"trinocular_left_sensor_frame", "trinocular_center_sensor_frame":"trinocular_center_sensor_frame", "trinocular_center_optical_frame":"trinocular_center_sensor_frame", "trinocular_right_sensor_frame":"trinocular_right_sensor_frame", "trinocular_right_optical_frame":"trinocular_right_sensor_frame", "dual_rgbd_base_frame":"dual_rgbd_base_frame", "rgbd_shortrange_sensor_frame":"rgbd_shortrange_sensor_frame", "rgbd_shortrange_rgb_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_rgb_optical_frame":"rgbd_shortrange_rgb_frame", "rgbd_shortrange_depth_frame":"rgbd_shortrange_depth_frame", "rgbd_shortrange_depth_optical_frame":"rgbd_shortrange_depth_frame", "rgbd_longrange_sensor_frame":"rgbd_longrange_sensor_frame", "rgbd_longrange_rgb_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_rgb_optical_frame":"rgbd_longrange_rgb_frame", "rgbd_longrange_depth_frame":"rgbd_longrange_depth_frame", "rgbd_longrange_depth_optical_frame":"rgbd_longrange_depth_frame"}
         self.tf_listener = tf.TransformListener()
         self.running = True
         self.last_pan_state = None
@@ -147,6 +147,7 @@ class PointHeadController:
                 print "Tilt: " + str(self.last_tilt_state.current_pos)
                 return [real_pan, real_tilt]
             except:
+                print "Exception occured trying to compute pointing: ", sys.exc_info()
                 rospy.logerr("Unable to compute pointing - this is probably because a frame doesn't exist")
                 return [None, None]
         else:
