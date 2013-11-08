@@ -63,7 +63,7 @@ class LaserScanController:
 
     def laser_scan_cb(self, msg):
         if (self.active):
-            self.laser_scans.append([self.last_laser_state.current_pos, msg])
+            self.laser_scans.append([self.last_tilt_state, msg])
 
     def SelfTest(self):
         rospy.loginfo("Self-testing LaserScan Controller")
@@ -135,9 +135,16 @@ class LaserScanController:
             request.Scans = self.laser_scans
             response = None
             try:
-                response = self.scan_processor.call(request)
-            except:
+                tilts = []
+                scans = []
+                for t, s in self.laser_scans:
+                    tilts.append(t)
+                    scans.append(s)
+                # response = self.scan_processor.call(request)
+                response = self.scan_processor(scans)
+            except e:
                 rospy.logerr("Failed to process LIDAR scans to pointcloud")
+                rospy.logerr("Service call failed: %s" % e)
                 self.server.set_aborted()
             result = self.RunTrajectory(post_traj)
             if (result):
