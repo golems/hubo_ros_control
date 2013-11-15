@@ -133,7 +133,7 @@ class LaserScanController:
             print "Scan action recorded " + str(len(self.laser_scans)) + " scans during the scan process"
             request = hsss.LidarAggregationRequest()
             request.Scans = self.laser_scans
-            response = None
+            response = hsss.LidarAggregationResponse()
             try:
                 tilts = []
                 scans = []
@@ -141,7 +141,7 @@ class LaserScanController:
                     tilts.append(t)
                     scans.append(s)
                 # response = self.scan_processor.call(request)
-                response = self.scan_processor(scans)
+                response = self.scan_processor(scans, tilts)
             except e:
                 rospy.logerr("Failed to process LIDAR scans to pointcloud")
                 rospy.logerr("Service call failed: %s" % e)
@@ -151,7 +151,7 @@ class LaserScanController:
                 rospy.loginfo("LaserScanAction post completed")
                 if (response != None):
                     action_response = hsms.LaserScanResult()
-                    action_response.scan = response
+                    action_response.scan = response.Cloud
                     self.server.set_succeeded(action_response)
             else:
                 rospy.logerr("Unable to complete LaserScanAction")
