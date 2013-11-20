@@ -4,7 +4,7 @@ project(hubo_trajectory_interface)
 ## Find catkin macros and libraries
 ## if COMPONENTS list like find_package(catkin REQUIRED COMPONENTS xyz)
 ## is used, also find other catkin packages
-find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs hubo_robot_msgs hubo_gt_rt roscpp rospy trajectory_msgs message_generation)
+find_package(catkin REQUIRED COMPONENTS actionlib actionlib_msgs hubo_robot_msgs roscpp rospy trajectory_msgs message_generation)
 
 ## System dependencies are found with CMake's conventions
 find_package(Boost REQUIRED COMPONENTS thread)
@@ -52,7 +52,7 @@ find_package(Boost REQUIRED COMPONENTS thread)
 catkin_package(
 #  INCLUDE_DIRS include
 #  LIBRARIES hubo_trajectory_interface
-  CATKIN_DEPENDS actionlib actionlib_msgs hubo_robot_msgs hubo_gt_rt roscpp rospy trajectory_msgs message_runtime
+  CATKIN_DEPENDS actionlib actionlib_msgs hubo_robot_msgs roscpp rospy trajectory_msgs message_runtime
   DEPENDS system_lib
 )
 
@@ -67,9 +67,9 @@ include_directories(include
 )
 
 # Add executables
-add_executable(hubo_trajectory_action src/hubo_trajectory_action.cpp)
-target_link_libraries(hubo_trajectory_action ${catkin_LIBRARIES})
-add_dependencies(hubo_trajectory_action ${catkin_EXPORTED_TARGETS})
+# add_executable(hubo_trajectory_action src/hubo_trajectory_action.cpp)
+# target_link_libraries(hubo_trajectory_action ${catkin_LIBRARIES})
+# add_dependencies(hubo_trajectory_action ${catkin_EXPORTED_TARGETS})
 
 
 #add_executable(hubo_trajectory_compromise_interface src/hubo_trajectory_compromise_interface.cpp)
@@ -77,9 +77,9 @@ add_dependencies(hubo_trajectory_action ${catkin_EXPORTED_TARGETS})
 #add_dependencies(hubo_trajectory_compromise_interface ${catkin_EXPORTED_TARGETS})
 
 # WARNING Needs hubo-motion-rt installed
-add_executable(hubo_trajectory_hubo_motion_interface src/hubo_trajectory_hubo_motion_interface.cpp src/hubo_trajectory.cpp)
-target_link_libraries(hubo_trajectory_hubo_motion_interface ${catkin_LIBRARIES} huboctrl daemonizer ach rt)
-add_dependencies(hubo_trajectory_hubo_motion_interface ${catkin_EXPORTED_TARGETS})
+# add_executable(hubo_trajectory_hubo_motion_interface src/hubo_trajectory_hubo_motion_interface.cpp src/hubo_trajectory.cpp)
+# target_link_libraries(hubo_trajectory_hubo_motion_interface ${catkin_LIBRARIES} huboctrl daemonizer ach rt)
+# add_dependencies(hubo_trajectory_hubo_motion_interface ${catkin_EXPORTED_TARGETS})
 
 #############
 ## Install ##
